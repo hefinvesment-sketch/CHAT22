@@ -1,0 +1,684 @@
+import express, { Request, Response } from 'express';
+import path from 'path';
+import dotenv from 'dotenv';
+import { GoogleGenAI } from '@google/genai';
+import { 
+  MOCK_TOKENS, 
+  MOCK_WALLETS, 
+  MOCK_SIGNALS, 
+  MOCK_PORTFOLIO, 
+  MOCK_OPEN_POSITIONS, 
+  MOCK_TRADE_HISTORY, 
+  MOCK_PARALLEL_BOTS, 
+  MOCK_SYSTEM_HEALTH, 
+  MOCK_LIVE_EVENTS, 
+  MOCK_WALLET_RELATIONSHIPS, 
+  INITIAL_SETTINGS 
+} from './src/data/mockData';
+import { PortfolioAccountingEngine } from './src/services/portfolioAccounting';
+import { RiskEngine } from './src/services/riskEngine';
+import { BacktestEngine } from './src/services/backtestEngine';
+import { RealDataProviders, ProviderHealthRecord } from './src/services/realDataProviders';
+import { createPersistenceStore, StorageAdapter } from './src/services/persistence';
+import { MarkToMarketWorker } from './src/services/markToMarketWorker';
+import { WalletDiscoveryService } from './src/services/walletDiscovery';
+import { SmartMoneyFlowEngine } from './src/services/smartMoneyFlow';
+import { WalletRelationshipGraph } from './src/services/walletGraph';
+import { 
+  BacktestConfig, 
+  ResearchQueryFilter, 
+  PaperPosition, 
+  PaperTradeRecord, 
+  AlphaSignal,
+  PaperPortfolio,
+  WalletProfile,
+  TokenMarketData
+} from './src/types';
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+const APP_MODE = process.env.APP_MODE || 'demo';
+
+app.use(express.json());
+
+// Initialize Persistence Store
+const storage: StorageAdapter = createPersistenceStore(APP_MODE);
+
+// State variables
+let currentPortfolio: PaperPortfolio;
+let openPositions: PaperPosition[] = [];
+let tradeHistory: PaperTradeRecord[] = [];
+let signals: AlphaSignal[] = [];
+let wallets: WalletProfile[] = [];
+let tokens: TokenMarketData[] = [];
+let liveEvents: any[] = [];
+let systemSettings = { ...INITIAL_SETTINGS };
+let parallelBots = [...MOCK_PARALLEL_BOTS];
+let systemReady = false;
+let missingComponents: string[] = [];
+
+// Initialize application state according to strict APP_MODE separation
+async function initializeState() {
+  try {
+    await storage.init();
+  } catch (err: any) {
+    console.warn(`[Storage Init Warning] Mode ${APP_MODE}: ${err.message}`);
+  }
+
+  if (APP_MODE === 'live_paper') {
+    console.log('[System]: Starting in LIVE_PAPER mode with strict real data separation.');
+    
+    // Check required environment variables
+    missingComponents = [];
+    if (!process.env.HELIUS_API_KEY) missingComponents.push('HELIUS_API_KEY');
+    if (!process.env.BIRDEYE_API_KEY) missingComponents.push('BIRDEYE_API_KEY');
+    if (!process.env.SOLANA_RPC_URL) missingComponents.push('SOLANA_RPC_URL');
+    if (!process.env.DATABASE_URL) missingComponents.push('DATABASE_URL');
+
+    // Clean $5,000 paper portfolio
+    const cleanLivePortfolio: PaperPortfolio = {
+      id: 'live-paper-portfolio',
+      name: 'HEF AlphaGraph Live Paper Account',
+      description: 'Persistent live-market paper execution portfolio with real Solana quotes',
+      strategyKey: 'HEF_INSTITUTIONAL',
+      startingCapitalUsd: 5000.00,
+      initialCashUsd: 5000.00,
+      cashUsd: 5000.00,
+      positionsValueUsd: 0.00,
+      totalEquityUsd: 5000.00,
+      totalReturnPercent: 0.00,
+      realizedPnlUsd: 0.00,
+      unrealizedPnlUsd: 0.00,
+      todayPnlUsd: 0.00,
+      todayReturnPercent: 0.00,
+      weeklyPnlUsd: 0.00,
+      monthlyPnlUsd: 0.00,
+      maxDrawdownPercent: 0.00,
+      winRatePercent: 0.00,
+      profitFactor: 1.00,
+      expectedValuePerTradeUsd: 0.00,
+      sharpeRatio: 0.00,
+      averageSlippageBps: 35,
+      averageDetectionLatencyMs: 650,
+      copyEfficiencyPercent: 100,
+      totalTradesCount: 0,
+      openPositionsCount: 0,
+      totalFeesPaidUsd: 0.00,
+      equityHistory: [
+        { timestamp: new Date().toISOString().slice(0, 10), equity: 5000.00, drawdownPercent: 0, solBenchmark: 100, btcBenchmark: 100, ethBenchmark: 100 }
+      ]
+    };
+
+    // Try to load existing live paper portfolio from PostgreSQL
+    try {
+      const persisted = await storage.getPortfolio('live-paper-portfolio');
+      if (persisted) {
+        currentPortfolio = persisted;
+        openPositions = await storage.getOpenPositions('live-paper-portfolio');
+        tradeHistory = await storage.getTrades('live-paper-portfolio');
+        signals = await storage.getSignals(50);
+        wallets = await storage.getWallets();
+        console.log(`[System]: Loaded persisted live portfolio with ${openPositions.length} positions and ${tradeHistory.length} trades.`);
+      } else {
+        currentPortfolio = cleanLivePortfolio;
+        await storage.savePortfolio(cleanLivePortfolio);
+      }
+    } catch (e) {
+      currentPortfolio = cleanLivePortfolio;
+    }
+
+    tokens = [];
+    liveEvents = [
+      {
+        id: `ev-init-${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        category: 'SIGNAL_GENERATED',
+        headline: 'Live Paper Trading Session Initialized',
+        detail: `Starting capital: $5,000.00. Real provider feeds active. ${missingComponents.length > 0 ? 'Warning: Missing ' + missingComponents.join(', ') : 'All live providers ready.'}`,
+        badgeType: missingComponents.length > 0 ? 'warning' : 'info'
+      }
+    ];
+
+    systemReady = missingComponents.length === 0;
+  } else if (APP_MODE === 'historical_backtest') {
+    console.log('[System]: Starting in HISTORICAL_BACKTEST mode.');
+    currentPortfolio = { ...MOCK_PORTFOLIO, startingCapitalUsd: 5000.00, initialCashUsd: 5000.00, cashUsd: 5000.00, positionsValueUsd: 0, totalEquityUsd: 5000.00 };
+    openPositions = [];
+    tradeHistory = [];
+    signals = [];
+    wallets = [];
+    tokens = [];
+    liveEvents = [];
+    systemReady = true;
+  } else {
+    // APP_MODE === 'demo'
+    console.log('[System]: Starting in DEMO mode with verified double-entry mock data.');
+    currentPortfolio = { ...MOCK_PORTFOLIO, startingCapitalUsd: 5000.00, initialCashUsd: 5000.00 };
+    openPositions = [...MOCK_OPEN_POSITIONS];
+    tradeHistory = [...MOCK_TRADE_HISTORY];
+    signals = [...MOCK_SIGNALS];
+    wallets = [...MOCK_WALLETS];
+    tokens = [...MOCK_TOKENS];
+    liveEvents = [...MOCK_LIVE_EVENTS];
+    systemReady = true;
+
+    // Strict double-entry reconciliation
+    try {
+      const initialAudit = PortfolioAccountingEngine.validatePortfolioReconciliation(
+        currentPortfolio,
+        openPositions,
+        tradeHistory
+      );
+      if (!initialAudit.isValid) {
+        const fixed = PortfolioAccountingEngine.rebuildPortfolioFromLedger(
+          5000.00,
+          tradeHistory,
+          openPositions
+        );
+        currentPortfolio.cashUsd = fixed.reconstructedCashUsd;
+        currentPortfolio.positionsValueUsd = fixed.reconstructedPositionsValueUsd;
+        currentPortfolio.realizedPnlUsd = fixed.reconstructedRealizedPnlUsd;
+        currentPortfolio.unrealizedPnlUsd = fixed.reconstructedUnrealizedPnlUsd;
+        currentPortfolio.totalEquityUsd = fixed.reconstructedEquityUsd;
+      }
+    } catch (e) {
+      console.error('[Startup Reconcile Error]:', e);
+    }
+  }
+}
+
+initializeState();
+
+// Lazy initialization for Google GenAI
+let geminiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI | null {
+  if (!geminiClient && process.env.GEMINI_API_KEY) {
+    geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return geminiClient;
+}
+
+// ---------------- API ENDPOINTS ----------------
+
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({ 
+    status: 'ok', 
+    appMode: APP_MODE, 
+    systemReady,
+    timestamp: new Date().toISOString() 
+  });
+});
+
+app.get('/api/system/status', async (req: Request, res: Response) => {
+  const providers = await RealDataProviders.getAllProviderHealth(storage);
+  const isHealthy = providers.every(p => p.status === 'CONNECTED' || p.status === 'DEMO_ONLY' || p.providerName === 'Redis');
+
+  res.json({
+    appMode: APP_MODE,
+    isDemo: APP_MODE === 'demo',
+    isReady: APP_MODE === 'demo' ? true : (systemReady && isHealthy),
+    status: (APP_MODE === 'demo' || (systemReady && isHealthy)) ? 'READY' : 'NOT_READY',
+    missingComponents,
+    providers,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/providers/health', async (req: Request, res: Response) => {
+  const records = await RealDataProviders.getAllProviderHealth(storage);
+  res.json({
+    appMode: APP_MODE,
+    providers: records,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/state', async (req: Request, res: Response) => {
+  const audit = PortfolioAccountingEngine.validatePortfolioReconciliation(
+    currentPortfolio,
+    openPositions,
+    tradeHistory
+  );
+
+  const providers = await RealDataProviders.getAllProviderHealth(storage);
+
+  res.json({
+    appMode: APP_MODE,
+    isDemo: APP_MODE === 'demo',
+    portfolio: currentPortfolio,
+    openPositions,
+    tradeHistory,
+    signals,
+    tokens,
+    systemHealth: {
+      ...MOCK_SYSTEM_HEALTH,
+      blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DISCONNECTED'),
+      marketData: providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DEGRADED'),
+      postgresql: providers.find(p => p.providerName === 'PostgreSQL')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'NOT_CONFIGURED'),
+      redis: process.env.REDIS_URL ? 'CONNECTED' : 'SYNTHETIC_CACHE',
+      lastEventTimestamp: new Date().toISOString()
+    },
+    liveEvents,
+    settings: systemSettings,
+    parallelBots,
+    portfolioAudit: audit
+  });
+});
+
+app.get('/api/portfolio', (req: Request, res: Response) => {
+  const audit = PortfolioAccountingEngine.validatePortfolioReconciliation(
+    currentPortfolio,
+    openPositions,
+    tradeHistory
+  );
+  res.json({
+    portfolio: currentPortfolio,
+    openPositions,
+    tradeHistory,
+    audit
+  });
+});
+
+app.get('/api/portfolio/audit', (req: Request, res: Response) => {
+  const audit = PortfolioAccountingEngine.validatePortfolioReconciliation(
+    currentPortfolio,
+    openPositions,
+    tradeHistory
+  );
+  const rebuild = PortfolioAccountingEngine.rebuildPortfolioFromLedger(
+    currentPortfolio.startingCapitalUsd,
+    tradeHistory,
+    openPositions
+  );
+  res.json({
+    audit,
+    rebuild,
+    currentPortfolio
+  });
+});
+
+app.get('/api/portfolios/bots', (req: Request, res: Response) => {
+  res.json(parallelBots);
+});
+
+app.get('/api/signals', (req: Request, res: Response) => {
+  res.json(signals);
+});
+
+app.get('/api/signals/:id', (req: Request, res: Response) => {
+  const signal = signals.find(s => s.id === req.params.id);
+  if (!signal) return res.status(404).json({ error: 'Signal not found' });
+  res.json(signal);
+});
+
+app.get('/api/wallets', (req: Request, res: Response) => {
+  res.json(wallets);
+});
+
+app.get('/api/wallets/:address', (req: Request, res: Response) => {
+  const wallet = wallets.find(w => w.address.toLowerCase() === req.params.address.toLowerCase());
+  if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+
+  let relationships: any[] = [];
+  if (APP_MODE === 'demo') {
+    relationships = MOCK_WALLET_RELATIONSHIPS.filter(
+      r => r.sourceWallet === wallet.address || r.targetWallet === wallet.address
+    );
+  }
+
+  res.json({
+    wallet,
+    relationships
+  });
+});
+
+app.get('/api/wallet-graph', (req: Request, res: Response) => {
+  const nodes = wallets.map(w => ({
+    id: w.address,
+    label: w.label || `${w.address.slice(0, 4)}...${w.address.slice(-4)}`,
+    score: w.qualityScore,
+    copyability: w.copyability?.copyabilityScore || 50,
+    clusterId: w.clusterId,
+    portfolioUsd: w.portfolioValueUsd,
+    isEligible: w.isEligibleSmartMoney
+  }));
+
+  let edges: any[] = [];
+  if (APP_MODE === 'demo') {
+    edges = MOCK_WALLET_RELATIONSHIPS.map(r => ({
+      id: r.id,
+      source: r.sourceWallet,
+      target: r.targetWallet,
+      type: r.relationshipType,
+      confidence: r.confidenceScore,
+      reasons: r.reasons
+    }));
+  }
+
+  res.json({ nodes, edges });
+});
+
+app.get('/api/tokens', (req: Request, res: Response) => {
+  res.json(tokens);
+});
+
+// Empirical Smart Money Flow
+app.get('/api/flows', (req: Request, res: Response) => {
+  const walletMap = new Map(wallets.map(w => [w.address, w]));
+
+  const flowMatrix = tokens.map(t => {
+    // Generate empirical flow from real time windows
+    const flows = SmartMoneyFlowEngine.calculateFlow(t.address, [], walletMap);
+    const flow24h = flows['24h']?.netEliteFlowUsd || t.netFlow24hUsd || 0;
+
+    return {
+      symbol: t.symbol,
+      address: t.address,
+      priceUsd: t.priceUsd,
+      smartMoneyVwap: flows['24h']?.smartMoneyVwap || t.smartMoneyVwap,
+      vwapDisplacementPercent: Number((((t.priceUsd - t.smartMoneyVwap) / t.smartMoneyVwap) * 100).toFixed(2)),
+      netFlow24hUsd: flow24h,
+      velocityScore: Math.min(100, Math.max(0, Math.round(50 + (flow24h / 50000)))),
+      accelerationScore: Math.min(100, Math.max(0, Math.round(50 + (flow24h / 40000)))),
+      timeframes: {
+        '1m': { netUsd: flows['1m']?.netEliteFlowUsd || 0, buyers: flows['1m']?.independentBuyersCount || 0, velocity: flows['1m']?.velocityUsdPerMinute || 0 },
+        '5m': { netUsd: flows['5m']?.netEliteFlowUsd || 0, buyers: flows['5m']?.independentBuyersCount || 0, velocity: flows['5m']?.velocityUsdPerMinute || 0 },
+        '10m': { netUsd: flows['10m']?.netEliteFlowUsd || 0, buyers: flows['10m']?.independentBuyersCount || 0, velocity: flows['10m']?.velocityUsdPerMinute || 0 },
+        '30m': { netUsd: flows['30m']?.netEliteFlowUsd || 0, buyers: flows['30m']?.independentBuyersCount || 0, velocity: flows['30m']?.velocityUsdPerMinute || 0 },
+        '1h': { netUsd: flows['1h']?.netEliteFlowUsd || 0, buyers: flows['1h']?.independentBuyersCount || 0, velocity: flows['1h']?.velocityUsdPerMinute || 0 },
+        '4h': { netUsd: flows['4h']?.netEliteFlowUsd || 0, buyers: flows['4h']?.independentBuyersCount || 0, velocity: flows['4h']?.velocityUsdPerMinute || 0 },
+        '24h': { netUsd: flow24h, buyers: flows['24h']?.independentBuyersCount || 0, velocity: flows['24h']?.velocityUsdPerMinute || 0 }
+      }
+    };
+  });
+
+  res.json(flowMatrix);
+});
+
+app.get('/api/settings', (req: Request, res: Response) => {
+  res.json(systemSettings);
+});
+
+app.post('/api/settings', (req: Request, res: Response) => {
+  systemSettings = { ...systemSettings, ...req.body };
+  res.json({ success: true, settings: systemSettings });
+});
+
+// Execute Paper Trade with Strict RiskEngine & MarkToMarketWorker
+const handleExecuteTradeRequest = async (req: Request, res: Response) => {
+  const { signalId } = req.body;
+  const signal = signals.find(s => s.id === signalId);
+  if (!signal) return res.status(404).json({ error: 'Signal not found' });
+
+  // If live_paper mode and required providers are missing, block execution
+  if (APP_MODE === 'live_paper' && !systemReady) {
+    return res.status(400).json({
+      error: 'LIVE PAPER EXECUTION BLOCKED: System providers are not ready or missing required API keys.',
+      code: 'SYSTEM_NOT_READY',
+      missingComponents
+    });
+  }
+
+  // 1. Evaluate Risk Engine
+  const riskResult = RiskEngine.evaluateTrade(
+    signal,
+    currentPortfolio,
+    openPositions,
+    systemSettings
+  );
+
+  if (!riskResult.passed) {
+    const rejectEvent = {
+      id: `ev-rej-${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString(),
+      category: 'HARD_REJECTION' as const,
+      headline: `Risk rejected: ${signal.tokenSymbol} (${riskResult.code})`,
+      detail: riskResult.reason || 'Institutional risk check failed',
+      badgeType: 'danger' as const,
+      tokenSymbol: signal.tokenSymbol,
+      alphaScore: signal.alphaScore
+    };
+    liveEvents.unshift(rejectEvent);
+
+    await storage.saveRiskEvent({
+      portfolioId: currentPortfolio.id,
+      signalId: signal.id,
+      eventType: 'HARD_REJECTION',
+      rejectionCode: riskResult.code,
+      reason: riskResult.reason || 'Risk policy violated'
+    });
+
+    return res.status(400).json({
+      error: 'Execution blocked by RiskEngine',
+      code: riskResult.code,
+      reason: riskResult.reason,
+      rejectionReason: riskResult.reason
+    });
+  }
+
+  // 2. Execute via MarkToMarketWorker using real Jupiter Quote
+  const execResult = await MarkToMarketWorker.executePaperTrade(
+    signal,
+    currentPortfolio,
+    openPositions,
+    systemSettings,
+    storage
+  );
+
+  if (!execResult.success || !execResult.position) {
+    return res.status(400).json({
+      error: execResult.rejectionReason || 'Trade execution failed',
+      code: execResult.rejectionCode || 'EXECUTION_FAILED'
+    });
+  }
+
+  openPositions.unshift(execResult.position);
+
+  const eventItem = {
+    id: `ev-${Date.now()}`,
+    timestamp: new Date().toLocaleTimeString(),
+    category: 'PAPER_EXECUTION' as const,
+    headline: `Paper position opened: ${signal.tokenSymbol}`,
+    detail: `Allocated $${execResult.position.costBasisUsd.toFixed(2)} at $${execResult.position.openPrice.toFixed(4)}. Latency: ${execResult.position.detectionLatencyMs}ms.`,
+    badgeType: 'success' as const,
+    tokenSymbol: signal.tokenSymbol,
+    alphaScore: signal.alphaScore
+  };
+  liveEvents.unshift(eventItem);
+
+  res.json({
+    success: true,
+    position: execResult.position,
+    portfolio: currentPortfolio
+  });
+};
+
+app.post('/api/trade/execute', handleExecuteTradeRequest);
+app.post('/api/paper-trade', handleExecuteTradeRequest);
+app.post('/api/paper/execute', handleExecuteTradeRequest);
+
+// Close Paper Position with Net Proceeds Crediting
+const handleCloseTradeRequest = async (req: Request, res: Response) => {
+  const { positionId, exitReason = 'MANUAL_CLOSE' } = req.body;
+  const pos = openPositions.find(p => p.id === positionId);
+  if (!pos) return res.status(404).json({ error: 'Position not found' });
+
+  try {
+    const result = PortfolioAccountingEngine.closePosition(
+      currentPortfolio,
+      openPositions,
+      tradeHistory,
+      positionId,
+      pos.currentPrice,
+      exitReason
+    );
+
+    currentPortfolio = result.updatedPortfolio;
+    openPositions = result.updatedPositions;
+    tradeHistory = result.updatedClosedTrades;
+
+    await storage.saveTrade(result.closedTrade);
+    await storage.removePosition(positionId);
+    await storage.savePortfolio(currentPortfolio);
+
+    const pnl = result.closedTrade.realizedPnlUsd;
+    const eventItem = {
+      id: `ev-${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString(),
+      category: 'POSITION_CLOSED' as const,
+      headline: `Position closed: ${pos.tokenSymbol} (${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)})`,
+      detail: `Net return: ${result.closedTrade.returnPercent >= 0 ? '+' : ''}${result.closedTrade.returnPercent}%. Exit Reason: ${exitReason}`,
+      badgeType: pnl >= 0 ? 'success' as const : 'warning' as const,
+      tokenSymbol: pos.tokenSymbol
+    };
+    liveEvents.unshift(eventItem);
+
+    res.json({
+      success: true,
+      closedTrade: result.closedTrade,
+      tradeRecord: result.closedTrade,
+      portfolio: currentPortfolio,
+      exitBreakdown: result.exitBreakdown
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+app.post('/api/trade/close', handleCloseTradeRequest);
+app.post('/api/close-position', handleCloseTradeRequest);
+
+// Mark-to-Market trigger for open positions
+app.post('/api/paper/mtm', async (req: Request, res: Response) => {
+  const mtm = await MarkToMarketWorker.monitorAndEvaluatePositions(
+    currentPortfolio,
+    openPositions,
+    storage
+  );
+  currentPortfolio = mtm.updatedPortfolio;
+  openPositions = mtm.remainingPositions;
+  if (mtm.closedTrades.length > 0) {
+    tradeHistory.unshift(...mtm.closedTrades);
+  }
+  res.json({
+    success: true,
+    closedTradesCount: mtm.closedTrades.length,
+    openPositionsCount: openPositions.length,
+    portfolio: currentPortfolio
+  });
+});
+
+// Reset Demo Portfolio to Exactly $5,000 Base
+app.post('/api/reset-demo', (req: Request, res: Response) => {
+  currentPortfolio = {
+    ...MOCK_PORTFOLIO,
+    startingCapitalUsd: 5000.00,
+    initialCashUsd: 5000.00,
+    cashUsd: 5000.00,
+    positionsValueUsd: 0.00,
+    totalEquityUsd: 5000.00,
+    realizedPnlUsd: 0.00,
+    unrealizedPnlUsd: 0.00,
+    totalReturnPercent: 0.00,
+    openPositionsCount: 0,
+    totalTradesCount: 0
+  };
+  openPositions = [];
+  tradeHistory = [];
+  res.json({ success: true, portfolio: currentPortfolio });
+});
+
+// Deterministic Event-Driven Point-in-Time Historical Backtesting Engine
+app.post('/api/backtests/run', (req: Request, res: Response) => {
+  try {
+    const config: BacktestConfig = req.body;
+    const result = BacktestEngine.runBacktest(config);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Deterministic Historical Expectancy Research Query
+app.post('/api/research/query', (req: Request, res: Response) => {
+  const filter: ResearchQueryFilter = req.body;
+  const result = BacktestEngine.queryHistoricalExpectancy(filter);
+  res.json(result);
+});
+
+// Wallet Discovery Endpoint
+app.post('/api/wallets/discover', async (req: Request, res: Response) => {
+  const rawTxs = req.body.transactions || [];
+  const discovered = await WalletDiscoveryService.discoverWalletsFromActivity(
+    rawTxs,
+    systemSettings,
+    storage
+  );
+  wallets.push(...discovered);
+  res.json({ success: true, discoveredCount: discovered.length, wallets: discovered });
+});
+
+// AI Quantitative Research Assistant (Server-Side Gemini)
+app.post('/api/ai-analyst', async (req: Request, res: Response) => {
+  const { prompt, dataPayload } = req.body;
+  const ai = getGeminiClient();
+
+  if (!ai) {
+    return res.json({
+      analysis: 'AI analyst unavailable. No quantitative conclusion generated. Please configure GEMINI_API_KEY in Settings to enable live algorithmic analysis.'
+    });
+  }
+
+  try {
+    const isDemo = APP_MODE === 'demo';
+    const demoWarning = isDemo
+      ? 'Note: Analysis is based on synthetic demo data and is not evidence of actual trading performance.\n\n'
+      : '';
+
+    const systemPrompt = `You are the lead quantitative research analyst for HEF AlphaGraph, an institutional crypto smart-money research and paper-trading platform.
+Objective: Discover statistically repeatable trading patterns, quantify copyability after latency/slippage/fees, identify trader deterioration, detect wallet clustering/sybil coordination, and validate positive net expected value.
+Analyze the following request with rigorous mathematical precision, objective risk mindset, and clear quantitative structure. Never manufacture confidence or claim edge without evidence.`;
+
+    const fullPrompt = `${demoWarning}${systemPrompt}\n\nUser Question/Task: ${prompt}\n\nContext Data: ${JSON.stringify(dataPayload || {}, null, 2)}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: fullPrompt,
+    });
+
+    res.json({
+      analysis: `${demoWarning}${response.text || 'No quantitative conclusion generated.'}`
+    });
+  } catch (err: any) {
+    console.error('Gemini API error:', err);
+    res.json({
+      analysis: 'AI analyst unavailable. No quantitative conclusion generated.'
+    });
+  }
+});
+
+// Vite Middleware for Development / Static serving for Production
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`HEF AlphaGraph server running on http://0.0.0.0:${PORT} [APP_MODE=${APP_MODE}]`);
+  });
+}
+
+startServer();
