@@ -4,8 +4,20 @@ import { RiskEngine } from '../src/services/riskEngine';
 import { AlphaEngine } from '../src/services/alphaEngine';
 import { BacktestEngine } from '../src/services/backtestEngine';
 import { PaperPortfolio, PaperPosition, AlphaSignal, SystemSettings } from '../src/types';
+import { MOCK_PORTFOLIO, MOCK_OPEN_POSITIONS, MOCK_TRADE_HISTORY } from '../src/data/mockData';
 
 describe('PortfolioAccountingEngine - Strict Double-Entry Ledger', () => {
+  it('verifies default demo MOCK_PORTFOLIO passes double-entry reconciliation with $0 discrepancy', () => {
+    const audit = PortfolioAccountingEngine.validatePortfolioReconciliation(
+      MOCK_PORTFOLIO,
+      MOCK_OPEN_POSITIONS,
+      MOCK_TRADE_HISTORY
+    );
+    expect(audit.isValid).toBe(true);
+    expect(audit.discrepancyUsd).toBe(0.00);
+    expect(audit.expectedEquityUsd).toBe(audit.actualEquityUsd);
+    expect(audit.actualEquityUsd).toBe(5015.09);
+  });
   const initialPortfolio: PaperPortfolio = {
     id: 'test-port-1',
     name: 'Institutional Paper Fund',

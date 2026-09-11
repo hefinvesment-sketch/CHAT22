@@ -1288,10 +1288,10 @@ export const MOCK_PORTFOLIO: PaperPortfolio = {
   strategyKey: 'combined-alphagraph',
   startingCapitalUsd: 5000.00,
   initialCashUsd: 5000.00,
-  cashUsd: 4742.00,
+  cashUsd: 4751.66,
   positionsValueUsd: 263.43,
-  totalEquityUsd: 5005.43, // Starting from $5,000 base
-  totalReturnPercent: 0.11,
+  totalEquityUsd: 5015.09, // Starting from $5,000 base + $15.09 net PnL ($9.66 realized + $5.43 unrealized)
+  totalReturnPercent: 0.30,
   realizedPnlUsd: 9.66,
   unrealizedPnlUsd: 5.43,
   todayPnlUsd: 5.43,
@@ -1316,7 +1316,7 @@ export const MOCK_PORTFOLIO: PaperPortfolio = {
     { timestamp: '2026-09-07', equity: 5004.10, drawdownPercent: 0.0, solBenchmark: 5020, btcBenchmark: 5030, ethBenchmark: 4990 },
     { timestamp: '2026-09-08', equity: 5001.15, drawdownPercent: 0.06, solBenchmark: 5080, btcBenchmark: 5050, ethBenchmark: 5010 },
     { timestamp: '2026-09-09', equity: 5009.80, drawdownPercent: 0.0, solBenchmark: 5120, btcBenchmark: 5080, ethBenchmark: 5040 },
-    { timestamp: '2026-09-10', equity: 5005.43, drawdownPercent: 0.08, solBenchmark: 5180, btcBenchmark: 5090, ethBenchmark: 5060 },
+    { timestamp: '2026-09-10', equity: 5015.09, drawdownPercent: 0.0, solBenchmark: 5180, btcBenchmark: 5090, ethBenchmark: 5060 },
   ]
 };
 
