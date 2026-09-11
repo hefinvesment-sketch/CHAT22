@@ -35,7 +35,17 @@ import {
   TokenMarketData
 } from './src/types';
 
-dotenv.config();
+dotenv.config({ override: true });
+
+// Sanitize Jupiter configuration
+if (process.env.JUPITER_API_URL && process.env.JUPITER_API_URL.startsWith('jup_')) {
+  if (!process.env.JUPITER_API_KEY) {
+    process.env.JUPITER_API_KEY = process.env.JUPITER_API_URL;
+  }
+  process.env.JUPITER_API_URL = 'https://api.jup.ag';
+} else if (!process.env.JUPITER_API_URL || process.env.JUPITER_API_URL.includes('quote-api.jup.ag')) {
+  process.env.JUPITER_API_URL = 'https://api.jup.ag';
+}
 
 const app = express();
 const PORT = 3000;
@@ -255,7 +265,7 @@ app.get('/api/state', async (req: Request, res: Response) => {
     systemHealth: {
       ...MOCK_SYSTEM_HEALTH,
       blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DISCONNECTED'),
-      marketData: providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DEGRADED'),
+      marketData: (providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' || providers.find(p => p.providerName === 'Jupiter')?.status === 'CONNECTED') ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DEGRADED'),
       postgresql: providers.find(p => p.providerName === 'PostgreSQL')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'NOT_CONFIGURED'),
       redis: process.env.REDIS_URL ? 'CONNECTED' : 'SYNTHETIC_CACHE',
       lastEventTimestamp: new Date().toISOString()

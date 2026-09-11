@@ -141,34 +141,42 @@ export class RealDataProviders {
 
     try {
       const start = Date.now();
-      // Probe Helius RPC / REST
-      const res = await fetch(`https://api.helius.xyz/v0/addresses/So11111111111111111111111111111111111111112/balances?api-key=${apiKey}`);
+      // Probe Helius RPC health
+      const rpcEndpoint = process.env.SOLANA_RPC_URL || `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+      const res = await fetch(rpcEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getHealth' })
+      });
       const latencyMs = Date.now() - start;
 
       if (res.ok) {
-        const record: ProviderHealthRecord = {
-          providerName: 'Helius',
-          status: 'CONNECTED',
-          lastChecked: new Date().toISOString(),
-          lastSuccessfulEvent: new Date().toISOString(),
-          latencyMs,
-          message: 'Helius on-chain data ingestion verified.',
-          activeMode: mode
-        };
-        this.healthMap['Helius'] = record;
-        return record;
-      } else {
-        const record: ProviderHealthRecord = {
-          providerName: 'Helius',
-          status: 'ERROR',
-          lastChecked: new Date().toISOString(),
-          latencyMs,
-          message: `Helius returned status HTTP ${res.status}`,
-          activeMode: mode
-        };
-        this.healthMap['Helius'] = record;
-        return record;
+        const json = await res.json();
+        if (json.result === 'ok') {
+          const record: ProviderHealthRecord = {
+            providerName: 'Helius',
+            status: 'CONNECTED',
+            lastChecked: new Date().toISOString(),
+            lastSuccessfulEvent: new Date().toISOString(),
+            latencyMs,
+            message: 'Helius on-chain data stream verified & synced.',
+            activeMode: mode
+          };
+          this.healthMap['Helius'] = record;
+          return record;
+        }
       }
+
+      const record: ProviderHealthRecord = {
+        providerName: 'Helius',
+        status: 'ERROR',
+        lastChecked: new Date().toISOString(),
+        latencyMs,
+        message: `Helius returned status HTTP ${res.status}`,
+        activeMode: mode
+      };
+      this.healthMap['Helius'] = record;
+      return record;
     } catch (err: any) {
       const record: ProviderHealthRecord = {
         providerName: 'Helius',
@@ -307,16 +315,64 @@ export class RealDataProviders {
     }
   }
 
+  // Jupiter endpoint & authentication helpers
+  public static getJupiterApiKey(): string {
+    const key = process.env.JUPITER_API_KEY;
+    if (key && key.trim().length > 0) return key.trim();
+    const urlVar = process.env.JUPITER_API_URL;
+    if (urlVar && (urlVar.startsWith('jup_') || !urlVar.startsWith('http'))) {
+      return urlVar.trim();
+    }
+    return '';
+  }
+
+  public static getJupiterBaseUrl(): string {
+    const urlVar = process.env.JUPITER_API_URL;
+    if (urlVar && urlVar.startsWith('http') && !urlVar.includes('quote-api.jup.ag')) {
+      return urlVar.replace(/\/+$/, '');
+    }
+    return 'https://api.jup.ag';
+  }
+
+  private static getJupiterHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json'
+    };
+    const apiKey = this.getJupiterApiKey();
+    if (apiKey) {
+      headers['x-api-key'] = apiKey;
+    }
+    return headers;
+  }
+
+  private static getJupiterQuoteUrl(
+    inputMint: string,
+    outputMint: string,
+    amountRaw: number | string,
+    slippageBps: number = 50
+  ): string {
+    const baseUrl = this.getJupiterBaseUrl();
+    const quotePath = baseUrl.includes('api.jup.ag') ? '/swap/v1/quote' : '/quote';
+    return `${baseUrl}${quotePath}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountRaw}&slippageBps=${slippageBps}`;
+  }
+
   // 4. Jupiter Quote API Health & Quote Fetcher
   public static async checkJupiterHealth(): Promise<ProviderHealthRecord> {
-    const jupApiUrl = process.env.JUPITER_API_URL || 'https://quote-api.jup.ag/v6';
     const mode = this.getAppMode();
+    const hasKey = Boolean(process.env.JUPITER_API_KEY);
 
     try {
       const start = Date.now();
       // Test quote: 10 USDC -> SOL
-      const testUrl = `${jupApiUrl}/quote?inputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&outputMint=So11111111111111111111111111111111111111112&amount=10000000&slippageBps=50`;
-      const res = await fetch(testUrl);
+      const testUrl = this.getJupiterQuoteUrl(
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        'So11111111111111111111111111111111111111112',
+        10000000,
+        50
+      );
+      const res = await fetch(testUrl, {
+        headers: this.getJupiterHeaders()
+      });
       const latencyMs = Date.now() - start;
 
       if (res.ok) {
@@ -326,7 +382,9 @@ export class RealDataProviders {
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs,
-          message: 'Jupiter DEX quote aggregation verified.',
+          message: hasKey 
+            ? 'Jupiter DEX swap routing and pricing authenticated via API Key.' 
+            : 'Jupiter DEX quote aggregation verified.',
           activeMode: mode
         };
         this.healthMap['Jupiter'] = record;
@@ -363,16 +421,17 @@ export class RealDataProviders {
     amountRaw: number | string,
     slippageBps: number = 50
   ): Promise<JupiterQuoteRecord> {
-    const jupApiUrl = process.env.JUPITER_API_URL || 'https://quote-api.jup.ag/v6';
     const mode = this.getAppMode();
 
     const inputDecimals = await this.getTokenDecimals(inputMint);
     const outputDecimals = await this.getTokenDecimals(outputMint);
 
     try {
-      const url = `${jupApiUrl}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountRaw}&slippageBps=${slippageBps}`;
+      const url = this.getJupiterQuoteUrl(inputMint, outputMint, amountRaw, slippageBps);
       const start = Date.now();
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: this.getJupiterHeaders()
+      });
       const latencyMs = Date.now() - start;
 
       if (!res.ok) {
@@ -446,14 +505,49 @@ export class RealDataProviders {
     }
   }
 
-  // 6. Birdeye Real-time Price Query
+  // 6. Jupiter Real-time Price Query (Price V3 API)
+  public static async fetchJupiterPrice(tokenAddress: string): Promise<MarketPriceRecord | null> {
+    const baseUrl = this.getJupiterBaseUrl();
+    const priceUrl = `${baseUrl}/price/v3?ids=${tokenAddress}`;
+
+    try {
+      const res = await fetch(priceUrl, {
+        headers: this.getJupiterHeaders()
+      });
+      if (!res.ok) return null;
+
+      const json = await res.json();
+      const tokenData = json[tokenAddress];
+      if (!tokenData || typeof tokenData.usdPrice !== 'number') return null;
+
+      return {
+        tokenAddress,
+        tokenSymbol: tokenAddress === 'So11111111111111111111111111111111111111112' ? 'SOL' : 'TOKEN',
+        priceUsd: tokenData.usdPrice,
+        source: 'JUPITER_PRICE_V3',
+        timestamp: tokenData.createdAt || new Date().toISOString(),
+        dataFreshnessSeconds: 1,
+        confidence: 0.99
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // 7. Birdeye Real-time Price Query (with Jupiter V3 fallback)
   public static async fetchBirdeyePrice(tokenAddress: string): Promise<MarketPriceRecord> {
     const apiKey = process.env.BIRDEYE_API_KEY;
     const mode = this.getAppMode();
 
     if (!apiKey) {
+      // First try live Jupiter Price V3 if Jupiter key or API is available
+      const jupPrice = await this.fetchJupiterPrice(tokenAddress);
+      if (jupPrice) {
+        return jupPrice;
+      }
+
       if (mode !== 'demo') {
-        throw new Error(`PROVIDER ERROR: Birdeye API key missing in ${mode} mode. Live price stream unavailable.`);
+        throw new Error(`PROVIDER ERROR: Birdeye API key missing and Jupiter Price API unavailable in ${mode} mode.`);
       }
       return {
         tokenAddress,
@@ -485,6 +579,12 @@ export class RealDataProviders {
         confidence: 0.99
       };
     } catch (err: any) {
+      // Try live Jupiter Price V3 before throwing or falling back
+      const jupPrice = await this.fetchJupiterPrice(tokenAddress);
+      if (jupPrice) {
+        return jupPrice;
+      }
+
       if (mode !== 'demo') {
         throw new Error(`PROVIDER FAILURE [Birdeye]: ${err.message}`);
       }
