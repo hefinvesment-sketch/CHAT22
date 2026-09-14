@@ -3,6 +3,7 @@ import { PortfolioAccountingEngine } from '../src/services/portfolioAccounting';
 import { RiskEngine } from '../src/services/riskEngine';
 import { AlphaEngine } from '../src/services/alphaEngine';
 import { BacktestEngine } from '../src/services/backtestEngine';
+import { RedisClientService } from '../src/services/redisClient';
 import { PaperPortfolio, PaperPosition, AlphaSignal, SystemSettings } from '../src/types';
 import { MOCK_PORTFOLIO, MOCK_OPEN_POSITIONS, MOCK_TRADE_HISTORY } from '../src/data/mockData';
 
@@ -594,3 +595,35 @@ describe('BacktestEngine - Deterministic Historical Replay', () => {
     expect(query.sampleMatches.length).toBeGreaterThan(0);
   });
 });
+
+describe('RedisClientService - TLS Connection & Normalization', () => {
+  it('normalizes redis:// with upstash.io to rediss:// for mandatory TLS', () => {
+    const raw = 'redis://default:token123@apparent-ibex-139990.upstash.io:6379';
+    const normalized = RedisClientService.normalizeRedisUrl(raw);
+    expect(normalized).toBe('rediss://default:token123@apparent-ibex-139990.upstash.io:6379');
+  });
+
+  it('preserves existing rediss:// URLs', () => {
+    const raw = 'rediss://default:token123@apparent-ibex-139990.upstash.io:6379';
+    const normalized = RedisClientService.normalizeRedisUrl(raw);
+    expect(normalized).toBe(raw);
+  });
+
+  it('correctly parses UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN strings into rediss://', () => {
+    const raw = 'UPSTASH_REDIS_REST_URL="https://apparent-ibex-139990.upstash.io" UPSTASH_REDIS_REST_TOKEN="token123"';
+    const normalized = RedisClientService.normalizeRedisUrl(raw);
+    expect(normalized).toBe('rediss://default:token123@apparent-ibex-139990.upstash.io:6379');
+  });
+
+  it('performs live PING and returns connection status', async () => {
+    const health = await RedisClientService.checkHealth();
+    expect(health).toHaveProperty('connected');
+    expect(health).toHaveProperty('latencyMs');
+    expect(typeof health.connected).toBe('boolean');
+    if (health.connected) {
+      expect(health.latencyMs).toBeGreaterThan(0);
+      expect(health.message).toContain('active');
+    }
+  });
+});
+

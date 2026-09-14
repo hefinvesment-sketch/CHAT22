@@ -1,4 +1,5 @@
 import { StorageAdapter } from './persistence';
+import { RedisClientService } from './redisClient';
 
 export type ProviderStatus = 
   | 'CONNECTED'
@@ -600,7 +601,28 @@ export class RealDataProviders {
     }
   }
 
-  // 7. Full Provider System Audit
+  // 7. Redis Cache Health Check
+  public static async checkRedisHealth(): Promise<ProviderHealthRecord> {
+    const mode = this.getAppMode();
+    const redisHealth = await RedisClientService.checkHealth();
+    const isConfigured = Boolean(RedisClientService.normalizeRedisUrl());
+
+    const record: ProviderHealthRecord = {
+      providerName: 'Redis',
+      status: redisHealth.connected 
+        ? 'CONNECTED' 
+        : (!isConfigured ? (mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED') : 'ERROR'),
+      lastChecked: new Date().toISOString(),
+      lastSuccessfulEvent: redisHealth.connected ? new Date().toISOString() : undefined,
+      latencyMs: redisHealth.latencyMs,
+      message: redisHealth.message,
+      activeMode: mode
+    };
+    this.healthMap['Redis'] = record;
+    return record;
+  }
+
+  // 8. Full Provider System Audit
   public static async getAllProviderHealth(storage?: StorageAdapter): Promise<ProviderHealthRecord[]> {
     const mode = this.getAppMode();
 
@@ -627,18 +649,9 @@ export class RealDataProviders {
       };
     }
 
-    // 2. Redis Health Check
-    const redisUrl = process.env.REDIS_URL;
-    const redisRecord: ProviderHealthRecord = {
-      providerName: 'Redis',
-      status: redisUrl ? 'CONNECTED' : 'NOT_CONFIGURED',
-      lastChecked: new Date().toISOString(),
-      message: redisUrl ? 'Redis cache connection active.' : 'REDIS_URL is optional and not defined.',
-      activeMode: mode
-    };
-
-    // 3. Helius, Birdeye, Solana RPC, Jupiter
-    const [helius, birdeye, solanaRpc, jupiter] = await Promise.all([
+    // 2. Redis, Helius, Birdeye, Solana RPC, Jupiter concurrently
+    const [redisRecord, helius, birdeye, solanaRpc, jupiter] = await Promise.all([
+      this.checkRedisHealth(),
       this.checkHeliusHealth(),
       this.checkBirdeyeHealth(),
       this.checkSolanaRpcHealth(),

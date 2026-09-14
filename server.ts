@@ -35,6 +35,8 @@ import {
   TokenMarketData
 } from './src/types';
 
+import { RedisClientService } from './src/services/redisClient';
+
 dotenv.config({ override: true });
 
 // Sanitize Jupiter configuration
@@ -45,6 +47,14 @@ if (process.env.JUPITER_API_URL && process.env.JUPITER_API_URL.startsWith('jup_'
   process.env.JUPITER_API_URL = 'https://api.jup.ag';
 } else if (!process.env.JUPITER_API_URL || process.env.JUPITER_API_URL.includes('quote-api.jup.ag')) {
   process.env.JUPITER_API_URL = 'https://api.jup.ag';
+}
+
+// Sanitize & normalize Redis configuration (enforces TLS for Upstash)
+if (process.env.REDIS_URL) {
+  const normalized = RedisClientService.normalizeRedisUrl(process.env.REDIS_URL);
+  if (normalized) {
+    process.env.REDIS_URL = normalized;
+  }
 }
 
 const app = express();
@@ -223,7 +233,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 app.get('/api/system/status', async (req: Request, res: Response) => {
   const providers = await RealDataProviders.getAllProviderHealth(storage);
-  const isHealthy = providers.every(p => p.status === 'CONNECTED' || p.status === 'DEMO_ONLY' || p.providerName === 'Redis');
+  const isHealthy = providers.every(p => p.status === 'CONNECTED' || p.status === 'DEMO_ONLY');
 
   res.json({
     appMode: APP_MODE,
@@ -241,6 +251,22 @@ app.get('/api/providers/health', async (req: Request, res: Response) => {
   res.json({
     appMode: APP_MODE,
     providers: records,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/redis/test', async (req: Request, res: Response) => {
+  const health = await RedisClientService.checkHealth();
+  let cacheTest = 'SKIPPED';
+  if (health.connected) {
+    const testKey = `hef:ping:${Date.now()}`;
+    const setOk = await RedisClientService.set(testKey, 'ok', 60);
+    const readVal = await RedisClientService.get(testKey);
+    cacheTest = (setOk && readVal === 'ok') ? 'VERIFIED' : 'FAILED';
+  }
+  res.json({
+    ...health,
+    cacheOperation: cacheTest,
     timestamp: new Date().toISOString()
   });
 });
@@ -267,7 +293,7 @@ app.get('/api/state', async (req: Request, res: Response) => {
       blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DISCONNECTED'),
       marketData: (providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' || providers.find(p => p.providerName === 'Jupiter')?.status === 'CONNECTED') ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DEGRADED'),
       postgresql: providers.find(p => p.providerName === 'PostgreSQL')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'NOT_CONFIGURED'),
-      redis: process.env.REDIS_URL ? 'CONNECTED' : 'SYNTHETIC_CACHE',
+      redis: providers.find(p => p.providerName === 'Redis')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'SYNTHETIC_CACHE'),
       lastEventTimestamp: new Date().toISOString()
     },
     liveEvents,
