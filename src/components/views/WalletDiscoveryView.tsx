@@ -8,7 +8,8 @@ import {
   TrendingUp, 
   TrendingDown, 
   Percent, 
-  ExternalLink 
+  ExternalLink,
+  Radio 
 } from 'lucide-react';
 import { WalletProfile } from '../../types';
 
@@ -109,37 +110,45 @@ export const WalletDiscoveryView: React.FC<WalletDiscoveryViewProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {filteredWallets.map(w => {
-              const isEligible = w.isEligibleSmartMoney;
-              return (
-                <tr key={w.address} className="hover:bg-zinc-800/40 transition-colors">
-                  <td className="py-3">
-                    <div className="font-bold text-zinc-100 flex items-center gap-1.5">
-                      <span>{w.label || `${w.address.slice(0, 6)}...${w.address.slice(-4)}`}</span>
-                      {!isEligible && (
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 text-rose-400 border border-rose-800">
-                          Ineligible
+            {filteredWallets.length === 0 ? (
+              <tr>
+                <td colSpan={11} className="py-8 text-center text-zinc-500">
+                  <Radio className="w-6 h-6 mx-auto mb-2 opacity-40 animate-pulse text-cyan-400" />
+                  <div>Discovering active Solana wallets via automated Helius worker...</div>
+                </td>
+              </tr>
+            ) : (
+              filteredWallets.map(w => {
+                const isEligible = w.isEligibleSmartMoney;
+                return (
+                  <tr key={w.address} className="hover:bg-zinc-800/40 transition-colors">
+                    <td className="py-3">
+                      <div className="font-bold text-zinc-100 flex items-center gap-1.5">
+                        <span>{w.label || `${w.address.slice(0, 6)}...${w.address.slice(-4)}`}</span>
+                        {!isEligible && (
+                          <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 text-rose-400 border border-rose-800">
+                            Ineligible
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-400 font-mono">
+                        {w.address.slice(0, 10)}...{w.address.slice(-6)} • {w.tradeCount} trades
+                      </div>
+                    </td>
+                    <td className="py-3">
+                      <div className="flex items-center gap-1">
+                        <span className={`text-base font-bold ${w.qualityScore >= 90 ? 'text-emerald-400' : w.qualityScore >= 75 ? 'text-cyan-300' : 'text-amber-400'}`}>
+                          {w.qualityScore}
                         </span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-zinc-400 font-mono">
-                      {w.address.slice(0, 10)}...{w.address.slice(-6)} • {w.tradeCount} trades
-                    </div>
-                  </td>
-                  <td className="py-3">
-                    <div className="flex items-center gap-1">
-                      <span className={`text-base font-bold ${w.qualityScore >= 90 ? 'text-emerald-400' : w.qualityScore >= 75 ? 'text-cyan-300' : 'text-amber-400'}`}>
-                        {w.qualityScore}
-                      </span>
-                      <span className="text-[10px] text-zinc-400">/ 100</span>
-                    </div>
-                  </td>
-                  <td className="py-3">
-                    <div>
-                      <span className="font-bold text-zinc-200">{w.copyability.copyabilityScore}</span>
-                      <span className="text-[10px] text-zinc-400 ml-1">({w.copyability.copyEfficiency}%)</span>
-                    </div>
-                  </td>
+                        <span className="text-[10px] text-zinc-400">/ 100</span>
+                      </div>
+                    </td>
+                    <td className="py-3">
+                      <div>
+                        <span className="font-bold text-zinc-200">{w.copyability?.copyabilityScore || 50}</span>
+                        <span className="text-[10px] text-zinc-400 ml-1">({w.copyability?.copyEfficiency || 75}%)</span>
+                      </div>
+                    </td>
                   <td className="py-3 font-semibold text-zinc-200">
                     ${(w.portfolioValueUsd / 1000).toFixed(0)}k
                   </td>
@@ -182,7 +191,7 @@ export const WalletDiscoveryView: React.FC<WalletDiscoveryViewProps> = ({
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>

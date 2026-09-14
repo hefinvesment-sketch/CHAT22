@@ -140,7 +140,17 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {tokens.map(tok => {
+            {tokens.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="py-8 text-center text-zinc-500">
+                  <div className="flex flex-col items-center justify-center gap-1.5">
+                    <span className="font-semibold text-zinc-400">Awaiting Real-Time Token Capital Inflow Data</span>
+                    <span className="text-[11px] text-zinc-500">Tokens and flow velocity are calculated dynamically as transactions are ingested from Helius.</span>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              tokens.map(tok => {
               const mult = timeframeMultipliers[selectedTimeframe];
               const flowTf = tok.netFlow24hUsd * mult;
               const velocity = Math.min(99, Math.round(50 + (tok.netFlow24hUsd / 800000) * 3));
@@ -187,7 +197,7 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
                   <td className="py-2.5 text-zinc-200 font-semibold">{Math.floor(tok.holderCount / 12000) + 3} Elite</td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>

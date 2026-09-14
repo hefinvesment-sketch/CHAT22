@@ -148,6 +148,7 @@ export class RealisticSolanaExecutionSimulator implements ExecutionSimulator {
       simulatedFillPrice,
       recommendedPositionUsd,
       positionPercent: effectiveRiskPercent,
+      positionPercentOfPortfolio: effectiveRiskPercent,
     };
   }
 }

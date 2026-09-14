@@ -21,6 +21,7 @@ import { BacktestEngine } from './src/services/backtestEngine';
 import { RealDataProviders, ProviderHealthRecord } from './src/services/realDataProviders';
 import { createPersistenceStore, StorageAdapter } from './src/services/persistence';
 import { MarkToMarketWorker } from './src/services/markToMarketWorker';
+import { HeliusIngestionWorker } from './src/services/heliusIngestionWorker';
 import { WalletDiscoveryService } from './src/services/walletDiscovery';
 import { SmartMoneyFlowEngine } from './src/services/smartMoneyFlow';
 import { WalletRelationshipGraph } from './src/services/walletGraph';
@@ -78,6 +79,8 @@ let systemSettings = { ...INITIAL_SETTINGS };
 let parallelBots = [...MOCK_PARALLEL_BOTS];
 let systemReady = false;
 let missingComponents: string[] = [];
+let heliusWorker: HeliusIngestionWorker | null = null;
+let markToMarketTimer: NodeJS.Timeout | null = null;
 
 // Initialize application state according to strict APP_MODE separation
 async function initializeState() {
@@ -140,7 +143,8 @@ async function initializeState() {
         tradeHistory = await storage.getTrades('live-paper-portfolio');
         signals = await storage.getSignals(50);
         wallets = await storage.getWallets();
-        console.log(`[System]: Loaded persisted live portfolio with ${openPositions.length} positions and ${tradeHistory.length} trades.`);
+        tokens = await storage.getTokens();
+        console.log(`[System]: Loaded persisted live portfolio with ${openPositions.length} positions, ${tradeHistory.length} trades, and ${tokens.length} tokens.`);
       } else {
         currentPortfolio = cleanLivePortfolio;
         await storage.savePortfolio(cleanLivePortfolio);
@@ -149,19 +153,104 @@ async function initializeState() {
       currentPortfolio = cleanLivePortfolio;
     }
 
-    tokens = [];
+    // 1. Verify provider health before setting systemReady
+    console.log('[System]: Verifying provider health before READY...');
+    const providerRecords = await RealDataProviders.getAllProviderHealth(storage);
+    const requiredProviders = ['PostgreSQL', 'Redis', 'Helius', 'Birdeye', 'Solana RPC', 'Jupiter'];
+    const unreadyProviders = providerRecords.filter(p => requiredProviders.includes(p.providerName) && p.status !== 'CONNECTED');
+
+    if (unreadyProviders.length > 0) {
+      console.warn('[System]: Some providers not CONNECTED before READY:', unreadyProviders.map(u => `${u.providerName}: ${u.status}`));
+      systemReady = false;
+    } else {
+      systemReady = true;
+      console.log('[System]: All providers verified healthy (PostgreSQL, Redis, Helius, Birdeye, Solana RPC, Jupiter). System is READY.');
+    }
+
     liveEvents = [
       {
         id: `ev-init-${Date.now()}`,
         timestamp: new Date().toLocaleTimeString(),
         category: 'SIGNAL_GENERATED',
         headline: 'Live Paper Trading Session Initialized',
-        detail: `Starting capital: $5,000.00. Real provider feeds active. ${missingComponents.length > 0 ? 'Warning: Missing ' + missingComponents.join(', ') : 'All live providers ready.'}`,
-        badgeType: missingComponents.length > 0 ? 'warning' : 'info'
+        detail: `Starting capital: $5,000.00. System status: ${systemReady ? 'READY (All providers connected)' : 'INITIALIZING'}.`,
+        badgeType: systemReady ? 'success' : 'warning'
       }
     ];
 
-    systemReady = missingComponents.length === 0;
+    // 2. Start Helius Ingestion Worker automatically
+    if (!heliusWorker) {
+      heliusWorker = new HeliusIngestionWorker(
+        storage,
+        systemSettings,
+        (update) => {
+          if (update.tokens && update.tokens.length > 0) {
+            for (const t of update.tokens) {
+              const idx = tokens.findIndex(e => e.symbol === t.symbol || e.address === t.address);
+              if (idx >= 0) tokens[idx] = t;
+              else tokens.unshift(t);
+            }
+            tokens = tokens.slice(0, 100);
+          }
+          if (update.signals && update.signals.length > 0) {
+            for (const s of update.signals) {
+              const idx = signals.findIndex(e => e.id === s.id);
+              if (idx >= 0) signals[idx] = s;
+              else signals.unshift(s);
+            }
+            signals = signals.slice(0, 50);
+          }
+          if (update.wallets && update.wallets.length > 0) {
+            for (const w of update.wallets) {
+              const idx = wallets.findIndex(e => e.address === w.address);
+              if (idx >= 0) wallets[idx] = w;
+              else wallets.unshift(w);
+            }
+            wallets = wallets.slice(0, 50);
+          }
+          if (update.liveEvent) {
+            liveEvents.unshift(update.liveEvent);
+            liveEvents = liveEvents.slice(0, 50);
+          }
+        }
+      );
+      heliusWorker.start(4500);
+      console.log('[System]: Helius Ingestion Worker automatically started for live_paper.');
+    }
+
+    // 3. Continuous mark-to-market worker
+    if (!markToMarketTimer) {
+      markToMarketTimer = setInterval(async () => {
+        if (openPositions.length > 0) {
+          try {
+            const mtmResult = await MarkToMarketWorker.monitorAndEvaluatePositions(
+              currentPortfolio,
+              openPositions,
+              storage
+            );
+            openPositions = mtmResult.remainingPositions;
+            currentPortfolio = mtmResult.updatedPortfolio;
+            if (mtmResult.closedTrades.length > 0) {
+              tradeHistory = [...mtmResult.closedTrades, ...tradeHistory];
+              for (const ct of mtmResult.closedTrades) {
+                liveEvents.unshift({
+                  id: `ev-close-${ct.id}`,
+                  timestamp: new Date().toLocaleTimeString(),
+                  category: 'POSITION_CLOSED',
+                  headline: `MTM Position Closed: ${ct.tokenSymbol} (${ct.exitReason})`,
+                  detail: `Realized P&L: ${ct.realizedPnlUsd >= 0 ? '+' : ''}$${ct.realizedPnlUsd.toFixed(2)} (${ct.returnPercent.toFixed(2)}%)`,
+                  badgeType: ct.realizedPnlUsd >= 0 ? 'success' : 'danger'
+                });
+              }
+            }
+          } catch (err: any) {
+            console.warn('[Continuous MTM Worker]:', err.message);
+          }
+        }
+      }, 4000);
+      console.log('[System]: Continuous Mark-to-Market Worker active.');
+    }
+
   } else if (APP_MODE === 'historical_backtest') {
     console.log('[System]: Starting in HISTORICAL_BACKTEST mode.');
     currentPortfolio = { ...MOCK_PORTFOLIO, startingCapitalUsd: 5000.00, initialCashUsd: 5000.00, cashUsd: 5000.00, positionsValueUsd: 0, totalEquityUsd: 5000.00 };
@@ -208,8 +297,6 @@ async function initializeState() {
     }
   }
 }
-
-initializeState();
 
 // Lazy initialization for Google GenAI
 let geminiClient: GoogleGenAI | null = null;
@@ -279,15 +366,20 @@ app.get('/api/state', async (req: Request, res: Response) => {
   );
 
   const providers = await RealDataProviders.getAllProviderHealth(storage);
+  const ingestionStats = heliusWorker ? heliusWorker.getStatus() : null;
 
   res.json({
     appMode: APP_MODE,
     isDemo: APP_MODE === 'demo',
+    systemReady,
+    providers,
+    ingestionStats,
     portfolio: currentPortfolio,
     openPositions,
     tradeHistory,
     signals,
     tokens,
+    wallets,
     systemHealth: {
       ...MOCK_SYSTEM_HEALTH,
       blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DISCONNECTED'),
@@ -298,7 +390,7 @@ app.get('/api/state', async (req: Request, res: Response) => {
     },
     liveEvents,
     settings: systemSettings,
-    parallelBots,
+    parallelBots: APP_MODE === 'live_paper' ? [] : parallelBots,
     portfolioAudit: audit
   });
 });
@@ -697,6 +789,10 @@ Analyze the following request with rigorous mathematical precision, objective ri
 
 // Vite Middleware for Development / Static serving for Production
 async function startServer() {
+  console.log(`[Server Boot]: Awaiting HEF AlphaGraph initialization [APP_MODE=${APP_MODE}]...`);
+  await initializeState();
+  console.log(`[Server Boot]: Initialization complete. systemReady=${systemReady}`);
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

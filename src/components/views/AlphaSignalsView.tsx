@@ -112,12 +112,20 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {filteredSignals.map(sig => {
-              const isHighConviction = sig.alphaScore >= 92;
-              const isEligible = sig.alphaScore >= 85;
+            {filteredSignals.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="py-8 text-center text-zinc-500">
+                  <Radio className="w-6 h-6 mx-auto mb-2 opacity-40 animate-pulse text-emerald-400" />
+                  <div>No signals matching filter. Scanning live Solana blocks via Helius...</div>
+                </td>
+              </tr>
+            ) : (
+              filteredSignals.map(sig => {
+                const isHighConviction = sig.alphaScore >= 92;
+                const isEligible = sig.alphaScore >= 85;
 
-              return (
-                <tr key={sig.id} className="hover:bg-zinc-800/40 transition-colors">
+                return (
+                  <tr key={sig.id} className="hover:bg-zinc-800/40 transition-colors">
                   <td className="py-3">
                     <div className="font-bold text-zinc-100 text-sm">{sig.tokenSymbol}</div>
                     <div className="text-[10px] text-zinc-400">{sig.tokenAddress.slice(0, 6)}...{sig.tokenAddress.slice(-4)}</div>
@@ -173,7 +181,7 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>

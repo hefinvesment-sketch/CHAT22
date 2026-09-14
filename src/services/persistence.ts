@@ -6,8 +6,10 @@ import {
   PaperPosition, 
   PaperTradeRecord, 
   AlphaSignal, 
-  WalletProfile 
+  WalletProfile,
+  TokenMarketData
 } from '../types';
+import { ParsedTransactionRecord } from './heliusParser';
 
 export interface StorageAdapter {
   init(): Promise<void>;
@@ -31,6 +33,11 @@ export interface StorageAdapter {
   }): Promise<void>;
   saveWallet(wallet: WalletProfile): Promise<void>;
   getWallets(): Promise<WalletProfile[]>;
+  saveTransaction(tx: ParsedTransactionRecord): Promise<void>;
+  saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void>;
+  getTransactions(limit?: number): Promise<ParsedTransactionRecord[]>;
+  saveToken(token: TokenMarketData): Promise<void>;
+  getTokens(): Promise<TokenMarketData[]>;
   saveProviderHealth(record: {
     providerName: string;
     status: string;
@@ -571,6 +578,160 @@ export class PostgresPersistenceStore implements StorageAdapter {
     }));
   }
 
+  public async saveTransaction(tx: ParsedTransactionRecord): Promise<void> {
+    if (!this.pool) return;
+    try {
+      // 1. Ensure wallet exists
+      if (tx.walletAddress && tx.walletAddress !== 'UNKNOWN_WALLET') {
+        await this.pool.query(
+          `INSERT INTO wallets (address, label, wallet_age_days, core_asset_ratio, portfolio_value_usd, trade_count)
+           VALUES ($1, $2, 180, 50, 50000, 1)
+           ON CONFLICT (address) DO UPDATE SET trade_count = wallets.trade_count + 1, updated_at = NOW();`,
+          [tx.walletAddress, `Trader-${tx.walletAddress.slice(0, 4)}`]
+        );
+      }
+      // 2. Ensure tokens exist
+      const tradeTokenAddress = tx.tradeDirection === 'BUY' ? tx.tokenOutAddress : tx.tokenInAddress;
+      const tradeTokenSymbol = tx.tradeDirection === 'BUY' ? tx.tokenOutSymbol : tx.tokenInSymbol;
+      if (tradeTokenAddress) {
+        await this.pool.query(
+          `INSERT INTO tokens (address, symbol, name) VALUES ($1, $2, $3) ON CONFLICT (address) DO NOTHING;`,
+          [tradeTokenAddress, tradeTokenSymbol || 'TOKEN', tradeTokenSymbol || 'TOKEN']
+        );
+      }
+      // 3. Insert trade
+      await this.pool.query(
+        `INSERT INTO wallet_trades (
+          wallet_address, signature, timestamp, token_address, token_symbol,
+          trade_direction, token_amount, execution_price_usd, usd_value,
+          cost_basis_usd, realized_pnl_usd, is_airdrop_or_transfer, fee_usd
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        ON CONFLICT DO NOTHING;`,
+        [
+          tx.walletAddress || 'UNKNOWN_WALLET',
+          tx.signature,
+          tx.timestamp,
+          tradeTokenAddress || 'So11111111111111111111111111111111111111112',
+          tradeTokenSymbol || 'SOL',
+          tx.tradeDirection,
+          tx.tradeDirection === 'BUY' ? tx.tokenOutAmount : tx.tokenInAmount,
+          tx.executionPriceUsd,
+          tx.usdValue,
+          tx.usdValue,
+          0,
+          tx.isAirdropOrTransfer,
+          tx.transactionFeeUsd
+        ]
+      );
+    } catch (err: any) {
+      console.warn(`[Persistence saveTransaction Warning]: ${err.message}`);
+    }
+  }
+
+  public async saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void> {
+    for (const tx of txs) {
+      await this.saveTransaction(tx);
+    }
+  }
+
+  public async getTransactions(limit: number = 100): Promise<ParsedTransactionRecord[]> {
+    if (!this.pool) return [];
+    try {
+      const res = await this.pool.query(
+        `SELECT * FROM wallet_trades ORDER BY timestamp DESC LIMIT $1`,
+        [limit]
+      );
+      return res.rows.map(row => ({
+        signature: row.signature,
+        slot: 0,
+        timestamp: new Date(row.timestamp).toISOString(),
+        walletAddress: row.wallet_address,
+        dex: 'Solana DEX',
+        tradeDirection: row.trade_direction,
+        tokenInAddress: row.token_address,
+        tokenInSymbol: row.token_symbol,
+        tokenInAmount: parseFloat(row.token_amount),
+        tokenOutAddress: row.token_address,
+        tokenOutSymbol: row.token_symbol,
+        tokenOutAmount: parseFloat(row.token_amount),
+        executionPriceUsd: parseFloat(row.execution_price_usd),
+        usdValue: parseFloat(row.usd_value),
+        transactionFeeUsd: parseFloat(row.fee_usd),
+        isStablecoinRotation: false,
+        isAirdropOrTransfer: row.is_airdrop_or_transfer
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  public async saveToken(token: TokenMarketData): Promise<void> {
+    if (!this.pool) return;
+    try {
+      await this.pool.query(
+        `INSERT INTO tokens (
+          address, symbol, name, decimals, liquidity_usd, market_cap_usd,
+          mint_authority_revoked, freeze_authority_revoked, top_10_holder_percent,
+          is_honeypot_safe, risk_score, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        ON CONFLICT (address) DO UPDATE SET
+          liquidity_usd = EXCLUDED.liquidity_usd,
+          market_cap_usd = EXCLUDED.market_cap_usd,
+          risk_score = EXCLUDED.risk_score,
+          updated_at = NOW();`,
+        [
+          token.address,
+          token.symbol,
+          token.name,
+          token.decimals,
+          token.liquidityUsd,
+          token.marketCapUsd,
+          !token.hasMintAuthority,
+          !token.hasFreezeAuthority,
+          token.top10HoldersPercent,
+          token.isHoneypotSafe,
+          token.riskScore
+        ]
+      );
+    } catch (err: any) {
+      console.warn(`[Persistence saveToken Warning]: ${err.message}`);
+    }
+  }
+
+  public async getTokens(): Promise<TokenMarketData[]> {
+    if (!this.pool) return [];
+    try {
+      const res = await this.pool.query(`SELECT * FROM tokens ORDER BY liquidity_usd DESC LIMIT 50`);
+      return res.rows.map(row => ({
+        symbol: row.symbol,
+        name: row.name,
+        address: row.address,
+        decimals: row.decimals || 6,
+        priceUsd: 0,
+        priceChange1h: 0,
+        priceChange24h: 0,
+        volume24hUsd: 0,
+        liquidityUsd: parseFloat(row.liquidity_usd) || 0,
+        marketCapUsd: parseFloat(row.market_cap_usd) || 0,
+        fdvUsd: parseFloat(row.market_cap_usd) || 0,
+        holderCount: 1500,
+        tokenAgeDays: 45,
+        top10HoldersPercent: parseFloat(row.top_10_holder_percent) || 25,
+        top20HoldersPercent: 35,
+        devHoldingsPercent: 2.5,
+        hasFreezeAuthority: !row.freeze_authority_revoked,
+        hasMintAuthority: !row.mint_authority_revoked,
+        liquidityLockedPercent: 95,
+        isHoneypotSafe: row.is_honeypot_safe,
+        riskScore: row.risk_score || 20,
+        smartMoneyVwap: 0,
+        netFlow24hUsd: 0
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   public async saveProviderHealth(record: {
     providerName: string;
     status: string;
@@ -596,6 +757,8 @@ export class MemoryPersistenceStore implements StorageAdapter {
   private trades: Map<string, PaperTradeRecord[]> = new Map();
   private signals: Map<string, AlphaSignal> = new Map();
   private wallets: Map<string, WalletProfile> = new Map();
+  private transactions: ParsedTransactionRecord[] = [];
+  private storedTokens: Map<string, TokenMarketData> = new Map();
   private riskEvents: any[] = [];
   private providerHealth: any[] = [];
   private isInitialized = false;
@@ -670,6 +833,29 @@ export class MemoryPersistenceStore implements StorageAdapter {
 
   public async getWallets(): Promise<WalletProfile[]> {
     return Array.from(this.wallets.values()).map(w => ({ ...w }));
+  }
+
+  public async saveTransaction(tx: ParsedTransactionRecord): Promise<void> {
+    this.transactions.unshift({ ...tx });
+    if (this.transactions.length > 500) this.transactions.pop();
+  }
+
+  public async saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void> {
+    for (const tx of txs) {
+      await this.saveTransaction(tx);
+    }
+  }
+
+  public async getTransactions(limit: number = 100): Promise<ParsedTransactionRecord[]> {
+    return this.transactions.slice(0, limit);
+  }
+
+  public async saveToken(token: TokenMarketData): Promise<void> {
+    this.storedTokens.set(token.address, { ...token });
+  }
+
+  public async getTokens(): Promise<TokenMarketData[]> {
+    return Array.from(this.storedTokens.values());
   }
 
   public async saveProviderHealth(record: any): Promise<void> {

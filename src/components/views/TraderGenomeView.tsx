@@ -40,8 +40,15 @@ export const TraderGenomeView: React.FC<TraderGenomeViewProps> = ({
       </div>
 
       {/* Grid of Trader Genomes */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {wallets.map(w => {
+      {wallets.length === 0 ? (
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded p-8 text-center text-zinc-500 text-xs">
+          <Dna className="w-8 h-8 text-zinc-600 mx-auto mb-2 opacity-50" />
+          <div className="text-zinc-400 font-semibold mb-1">Awaiting Discovered Wallets</div>
+          <div>Trader genome clustering will extract behavioral archetypes once wallets are discovered by the ingestion worker.</div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {wallets.map(w => {
           const g = w.genome;
           return (
             <div 
@@ -121,6 +128,7 @@ export const TraderGenomeView: React.FC<TraderGenomeViewProps> = ({
           );
         })}
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 };

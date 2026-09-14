@@ -169,30 +169,36 @@ export const WalletNetworkView: React.FC<WalletNetworkViewProps> = ({
           </div>
 
           <div className="space-y-2">
-            {relationships.map(rel => (
-              <div
-                key={rel.id}
-                onClick={() => setSelectedRel(rel)}
-                className={`p-2.5 rounded border text-xs cursor-pointer transition-colors ${
-                  selectedRel?.id === rel.id 
-                    ? 'bg-zinc-800 border-zinc-600' 
-                    : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-zinc-200">{rel.relationshipType}</span>
-                  <span className={`text-[10px] font-bold ${rel.relationshipType === 'Likely Independent' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {rel.confidenceScore}% Confidence
-                  </span>
-                </div>
-                <div className="text-[10px] text-zinc-400 font-mono mt-1">
-                  {rel.sourceWallet.slice(0, 6)}... &harr; {rel.targetWallet.slice(0, 6)}...
-                </div>
-                <div className="text-[11px] text-zinc-400 mt-1">
-                  {rel.reasons[0]}
-                </div>
+            {relationships.length === 0 ? (
+              <div className="p-4 rounded bg-zinc-950/60 border border-zinc-800 text-center text-xs text-zinc-500">
+                No cluster links evaluated yet. Real-time correlation graph builds automatically as transactions are ingested.
               </div>
-            ))}
+            ) : (
+              relationships.map(rel => (
+                <div
+                  key={rel.id}
+                  onClick={() => setSelectedRel(rel)}
+                  className={`p-2.5 rounded border text-xs cursor-pointer transition-colors ${
+                    selectedRel?.id === rel.id 
+                      ? 'bg-zinc-800 border-zinc-600' 
+                      : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-zinc-200">{rel.relationshipType}</span>
+                    <span className={`text-[10px] font-bold ${rel.relationshipType === 'Likely Independent' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {rel.confidenceScore}% Confidence
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 font-mono mt-1">
+                    {rel.sourceWallet.slice(0, 6)}... &harr; {rel.targetWallet.slice(0, 6)}...
+                  </div>
+                  <div className="text-[11px] text-zinc-400 mt-1">
+                    {rel.reasons[0]}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           {selectedRel && (

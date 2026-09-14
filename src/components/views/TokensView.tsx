@@ -57,18 +57,26 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
-              {tokens.map(t => {
-                const isSafe = t.riskScore <= 20;
-                const isSelected = selectedToken?.symbol === t.symbol;
+              {tokens.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-zinc-500">
+                    <ShieldAlert className="w-6 h-6 mx-auto mb-2 opacity-40 text-amber-400" />
+                    <div>Streaming real-time Solana tokens from Helius DEX ingestion...</div>
+                  </td>
+                </tr>
+              ) : (
+                tokens.map(t => {
+                  const isSafe = t.riskScore <= 20;
+                  const isSelected = selectedToken?.symbol === t.symbol;
 
-                return (
-                  <tr 
-                    key={t.symbol} 
-                    onClick={() => setSelectedToken(t)}
-                    className={`cursor-pointer transition-colors ${
-                      isSelected ? 'bg-zinc-800/80' : 'hover:bg-zinc-800/40'
-                    }`}
-                  >
+                  return (
+                    <tr 
+                      key={t.symbol} 
+                      onClick={() => setSelectedToken(t)}
+                      className={`cursor-pointer transition-colors ${
+                        isSelected ? 'bg-zinc-800/80' : 'hover:bg-zinc-800/40'
+                      }`}
+                    >
                     <td className="py-3 font-bold text-zinc-100">
                       <div>{t.symbol}</div>
                       <div className="text-[10px] text-zinc-400 font-normal">{t.name}</div>
@@ -108,7 +116,7 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
                     </td>
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
           </table>
         </div>

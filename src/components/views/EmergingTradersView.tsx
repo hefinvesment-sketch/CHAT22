@@ -47,8 +47,15 @@ export const EmergingTradersView: React.FC<EmergingTradersViewProps> = ({
       </div>
 
       {/* Grid of Emerging Wallets */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {emergingWallets.map(w => {
+      {emergingWallets.length === 0 ? (
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded p-8 text-center text-zinc-500 text-xs">
+          <TrendingUp className="w-8 h-8 text-zinc-600 mx-auto mb-2 opacity-50" />
+          <div className="text-zinc-400 font-semibold mb-1">Awaiting Emerging Trader Signals</div>
+          <div>Wallets with accelerating alpha scores and positive multi-timeframe trajectory will appear here as activity is evaluated.</div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {emergingWallets.map(w => {
           const delta = w.rollingScores.sevenDay - w.rollingScores.ninetyDay;
           return (
             <div key={w.address} className="bg-zinc-900/80 border border-zinc-800 rounded p-4 space-y-3">
@@ -126,6 +133,7 @@ export const EmergingTradersView: React.FC<EmergingTradersViewProps> = ({
           );
         })}
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 };
