@@ -592,11 +592,17 @@ export class PostgresPersistenceStore implements StorageAdapter {
       }
       // 2. Ensure tokens exist
       const tradeTokenAddress = tx.tradeDirection === 'BUY' ? tx.tokenOutAddress : tx.tokenInAddress;
-      const tradeTokenSymbol = tx.tradeDirection === 'BUY' ? tx.tokenOutSymbol : tx.tokenInSymbol;
+      let tradeTokenSymbol = tx.tradeDirection === 'BUY' ? tx.tokenOutSymbol : tx.tokenInSymbol;
+      if (!tradeTokenSymbol || tradeTokenSymbol === 'TOKEN_IN' || tradeTokenSymbol === 'TOKEN_OUT') {
+        tradeTokenSymbol = tradeTokenAddress ? `${tradeTokenAddress.slice(0, 4)}..${tradeTokenAddress.slice(-4)}` : 'SOL-TOKEN';
+      }
       if (tradeTokenAddress) {
         await this.pool.query(
-          `INSERT INTO tokens (address, symbol, name) VALUES ($1, $2, $3) ON CONFLICT (address) DO NOTHING;`,
-          [tradeTokenAddress, tradeTokenSymbol || 'TOKEN', tradeTokenSymbol || 'TOKEN']
+          `INSERT INTO tokens (address, symbol, name) VALUES ($1, $2, $3) 
+           ON CONFLICT (address) DO UPDATE SET 
+             symbol = CASE WHEN tokens.symbol IN ('TOKEN_IN', 'TOKEN_OUT') THEN EXCLUDED.symbol ELSE tokens.symbol END,
+             name = CASE WHEN tokens.name IN ('TOKEN_IN', 'TOKEN_OUT') THEN EXCLUDED.name ELSE tokens.name END;`,
+          [tradeTokenAddress, tradeTokenSymbol, tradeTokenSymbol]
         );
       }
       // 3. Insert trade

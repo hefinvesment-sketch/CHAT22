@@ -107,8 +107,21 @@ export class HeliusTransactionParser {
         }
       }
 
-      const tokenInMeta = KNOWN_CORE_ASSETS[tokenInAddress] || { symbol: 'TOKEN_IN', decimals: 6, isStable: false };
-      const tokenOutMeta = KNOWN_CORE_ASSETS[tokenOutAddress] || { symbol: 'TOKEN_OUT', decimals: 6, isStable: false };
+      const formatUnknownSymbol = (addr: string, fallback: string) => {
+        if (!addr) return fallback;
+        return `${addr.slice(0, 4)}..${addr.slice(-4)}`;
+      };
+
+      const tokenInMeta = KNOWN_CORE_ASSETS[tokenInAddress] || { 
+        symbol: formatUnknownSymbol(tokenInAddress, 'TOKEN_IN'), 
+        decimals: 6, 
+        isStable: false 
+      };
+      const tokenOutMeta = KNOWN_CORE_ASSETS[tokenOutAddress] || { 
+        symbol: formatUnknownSymbol(tokenOutAddress, 'TOKEN_OUT'), 
+        decimals: 6, 
+        isStable: false 
+      };
 
       const isInputQuote = tokenInMeta.isStable || tokenInAddress === 'So11111111111111111111111111111111111111112';
       const isOutputQuote = tokenOutMeta.isStable || tokenOutAddress === 'So11111111111111111111111111111111111111112';

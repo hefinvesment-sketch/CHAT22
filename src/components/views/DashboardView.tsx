@@ -333,12 +333,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  sortedTokens.slice(0, 5).map(tok => {
+                  sortedTokens.slice(0, 5).map((tok, idx) => {
                     const disp = tok.smartMoneyVwap > 0 
                       ? Number((((tok.priceUsd - tok.smartMoneyVwap) / tok.smartMoneyVwap) * 100).toFixed(2))
                       : 0;
                     return (
-                      <tr key={tok.symbol} className="hover:bg-zinc-800/40 transition-colors">
+                      <tr key={tok.address || `${tok.symbol}-${idx}`} className="hover:bg-zinc-800/40 transition-colors">
                         <td className="py-2.5">
                           <div className="font-bold text-zinc-200">{tok.symbol}</div>
                           <div className="text-[10px] text-zinc-400">{tok.name}</div>

@@ -65,13 +65,14 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
                   </td>
                 </tr>
               ) : (
-                tokens.map(t => {
+                tokens.map((t, idx) => {
                   const isSafe = t.riskScore <= 20;
-                  const isSelected = selectedToken?.symbol === t.symbol;
+                  const isSelected = (selectedToken?.address && selectedToken.address === t.address) || 
+                                     (!selectedToken?.address && selectedToken?.symbol === t.symbol);
 
                   return (
                     <tr 
-                      key={t.symbol} 
+                      key={t.address || `${t.symbol}-${idx}`} 
                       onClick={() => setSelectedToken(t)}
                       className={`cursor-pointer transition-colors ${
                         isSelected ? 'bg-zinc-800/80' : 'hover:bg-zinc-800/40'

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS wallets (
     label VARCHAR(128),
     first_seen_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     wallet_age_days INT NOT NULL DEFAULT 0,
-    core_asset_ratio NUMERIC(5, 4) NOT NULL DEFAULT 0.0,
+    core_asset_ratio NUMERIC NOT NULL DEFAULT 0.0,
     portfolio_value_usd NUMERIC(16, 2) NOT NULL DEFAULT 0.0,
     trade_count INT NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,

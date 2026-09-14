@@ -60,7 +60,7 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
 
       {/* Top 3 High Acceleration Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {tokens.slice(1, 4).map(tok => {
+        {tokens.slice(1, 4).map((tok, idx) => {
           const mult = timeframeMultipliers[selectedTimeframe];
           const flowTf = tok.netFlow24hUsd * mult;
           const velocity = Math.min(99, Math.round(50 + (tok.netFlow24hUsd / 800000) * 3));
@@ -68,7 +68,7 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
           const displacement = Number((((tok.priceUsd - tok.smartMoneyVwap) / tok.smartMoneyVwap) * 100).toFixed(2));
 
           return (
-            <div key={tok.symbol} className="bg-zinc-900/80 border border-zinc-800 rounded p-3.5 space-y-2">
+            <div key={tok.address || `${tok.symbol}-${idx}`} className="bg-zinc-900/80 border border-zinc-800 rounded p-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <div>
                   <span className="font-bold text-zinc-100 text-base">{tok.symbol}</span>
@@ -150,7 +150,7 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
                 </td>
               </tr>
             ) : (
-              tokens.map(tok => {
+              tokens.map((tok, idx) => {
               const mult = timeframeMultipliers[selectedTimeframe];
               const flowTf = tok.netFlow24hUsd * mult;
               const velocity = Math.min(99, Math.round(50 + (tok.netFlow24hUsd / 800000) * 3));
@@ -159,7 +159,7 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
               const isPositive = flowTf >= 0;
 
               return (
-                <tr key={tok.symbol} className="hover:bg-zinc-800/40 transition-colors">
+                <tr key={tok.address || `${tok.symbol}-${idx}`} className="hover:bg-zinc-800/40 transition-colors">
                   <td className="py-2.5 font-bold text-zinc-100">
                     <div>{tok.symbol}</div>
                     <div className="text-[10px] text-zinc-400 font-normal">{tok.name}</div>
