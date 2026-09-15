@@ -38,15 +38,27 @@ export class MarkToMarketWorker {
     let totalUnrealizedPnl = 0;
 
     for (const pos of openPositions) {
-      // 1. Fetch current price from Birdeye / Jupiter
+      // 1. Fetch current price from Birdeye with freshness check
       let currentPrice = pos.currentPrice;
+      let priceStatus: 'FRESH' | 'STALE' | 'UNAVAILABLE' = 'UNAVAILABLE';
+      let priceSource = 'CACHE';
+
       try {
         const priceRec = await RealDataProviders.fetchBirdeyePrice(pos.tokenAddress);
-        if (priceRec.priceUsd > 0) {
-          currentPrice = priceRec.priceUsd;
+        if (priceRec && priceRec.priceUsd > 0) {
+          const ageMs = Date.now() - new Date(priceRec.timestamp).getTime();
+          if (ageMs < 60000) { // Under 60s
+            currentPrice = priceRec.priceUsd;
+            priceStatus = 'FRESH';
+            priceSource = 'BIRDEYE';
+          } else {
+            currentPrice = priceRec.priceUsd;
+            priceStatus = 'STALE';
+            priceSource = 'BIRDEYE_STALE';
+          }
         }
       } catch (err) {
-        // Keep previous price if price fetch fails
+        priceStatus = 'UNAVAILABLE';
       }
 
       const currentValue = pos.amount * currentPrice;
@@ -62,19 +74,53 @@ export class MarkToMarketWorker {
         }
       }
 
-      // Check exit triggers
+      // Check exit triggers ONLY when priceStatus === 'FRESH'
       let exitReason: 'STOP_LOSS' | 'TAKE_PROFIT' | 'TRAILING_STOP' | null = null;
-      if (currentPrice <= pos.stopLossPrice) {
-        exitReason = 'STOP_LOSS';
-      } else if (currentPrice >= pos.takeProfitPrice) {
-        exitReason = 'TAKE_PROFIT';
-      } else if (trailingStop && currentPrice <= trailingStop) {
-        exitReason = 'TRAILING_STOP';
+      if (priceStatus === 'FRESH') {
+        if (currentPrice <= pos.stopLossPrice) {
+          exitReason = 'STOP_LOSS';
+        } else if (currentPrice >= pos.takeProfitPrice) {
+          exitReason = 'TAKE_PROFIT';
+        } else if (trailingStop && currentPrice <= trailingStop) {
+          exitReason = 'TRAILING_STOP';
+        }
       }
 
       if (exitReason) {
-        // Close position: simulate executable exit via Jupiter quote
-        const proceedsUsd = currentValue * 0.9965; // realistic exit friction (0.35% slippage + fee)
+        const isLiveMode = RealDataProviders.getAppMode() === 'live_paper';
+        let proceedsUsd = currentValue * 0.9965;
+        let slippagePaid = currentValue * 0.0035;
+
+        if (isLiveMode) {
+          try {
+            const tokenDecimals = await RealDataProviders.getTokenDecimals(pos.tokenAddress);
+            const amountRaw = Math.round(pos.amount * Math.pow(10, tokenDecimals));
+            const quote = await RealDataProviders.getJupiterQuote(
+              pos.tokenAddress,
+              'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+              amountRaw
+            );
+            if (quote.outAmountUi > 0) {
+              proceedsUsd = quote.outAmountUi;
+              slippagePaid = proceedsUsd * (quote.priceImpactPct / 100);
+            }
+          } catch (err: any) {
+            console.warn(`[MTM Worker]: Real Jupiter exit quote failed for ${pos.tokenSymbol}: ${err.message}. Keeping position open.`);
+            const updatedPos: PaperPosition = {
+              ...pos,
+              currentPrice,
+              currentValueUsd: currentValue,
+              unrealizedPnlUsd: unrealizedPnl,
+              unrealizedReturnPercent: unrealizedReturnPct,
+              trailingStopPrice: trailingStop
+            };
+            remainingPositions.push(updatedPos);
+            totalPositionsValue += currentValue;
+            totalUnrealizedPnl += unrealizedPnl;
+            continue;
+          }
+        }
+
         const realizedPnl = proceedsUsd - pos.costBasisUsd;
         const returnPct = pos.costBasisUsd > 0 ? (realizedPnl / pos.costBasisUsd) * 100 : 0;
         const feesPaid = 0.05; // Solana transaction fee
@@ -97,7 +143,7 @@ export class MarkToMarketWorker {
           exitReason,
           strategyName: pos.strategyName,
           feesPaidUsd: feesPaid,
-          slippagePaidUsd: currentValue * 0.0035
+          slippagePaidUsd: slippagePaid
         };
 
         closedTrades.push(closedTrade);

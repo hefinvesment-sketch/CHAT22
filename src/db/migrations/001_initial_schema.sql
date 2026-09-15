@@ -289,3 +289,36 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     walk_forward_splits JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Strategy Lab Persistence Tables
+CREATE TABLE IF NOT EXISTS strategy_definitions (
+    key VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    description TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    config JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS strategy_signal_decisions (
+    id VARCHAR(128) PRIMARY KEY,
+    strategy_key VARCHAR(64) NOT NULL,
+    signal_id VARCHAR(64) NOT NULL,
+    decision VARCHAR(32) NOT NULL,
+    reason TEXT NOT NULL,
+    alpha_score INT NOT NULL,
+    feature_snapshot JSONB,
+    evaluated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_strat_decisions_strat_time ON strategy_signal_decisions(strategy_key, evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_strat_decisions_signal ON strategy_signal_decisions(signal_id);
+
+CREATE TABLE IF NOT EXISTS strategy_equity_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    strategy_key VARCHAR(64) NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    equity_usd NUMERIC(16, 2) NOT NULL,
+    drawdown_percent NUMERIC(5, 2) NOT NULL DEFAULT 0.0
+);
+CREATE INDEX IF NOT EXISTS idx_strat_equity_snapshots ON strategy_equity_snapshots(strategy_key, timestamp ASC);
+

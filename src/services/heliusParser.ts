@@ -233,4 +233,60 @@ export class HeliusTransactionParser {
       isAirdropOrTransfer: false
     };
   }
+
+  /**
+   * Map standard Solana JSON-parsed RPC getTransaction into Helius transaction format
+   */
+  public static mapSolanaRpcTransaction(rpcTx: any, signature: string): any {
+    const message = rpcTx.transaction?.message;
+    const meta = rpcTx.meta;
+    const feePayer = message?.accountKeys?.find((k: any) => k.signer)?.pubkey || 'UNKNOWN_WALLET';
+    
+    // Calculate token balance diffs to detect swaps/transfers
+    const preBalances = meta?.preTokenBalances || [];
+    const postBalances = meta?.postTokenBalances || [];
+    
+    const tokenInputs: any[] = [];
+    const tokenOutputs: any[] = [];
+    
+    for (const post of postBalances) {
+      const pre = preBalances.find((p: any) => p.accountIndex === post.accountIndex && p.mint === post.mint);
+      const preAmount = pre ? Number(pre.uiTokenAmount?.uiAmount || 0) : 0;
+      const postAmount = Number(post.uiTokenAmount?.uiAmount || 0);
+      const diff = postAmount - preAmount;
+      if (diff > 0) {
+        tokenOutputs.push({
+          mint: post.mint,
+          tokenAddress: post.mint,
+          tokenAmount: diff,
+          rawTokenAmount: { tokenAmount: diff },
+          decimals: post.uiTokenAmount?.decimals || 6
+        });
+      } else if (diff < 0) {
+        tokenInputs.push({
+          mint: post.mint,
+          tokenAddress: post.mint,
+          tokenAmount: Math.abs(diff),
+          rawTokenAmount: { tokenAmount: Math.abs(diff) },
+          decimals: post.uiTokenAmount?.decimals || 6
+        });
+      }
+    }
+    
+    return {
+      signature,
+      slot: rpcTx.slot,
+      timestamp: rpcTx.blockTime,
+      fee: meta?.fee || 5000,
+      feePayer,
+      type: tokenInputs.length > 0 && tokenOutputs.length > 0 ? 'SWAP' : (tokenOutputs.length > 0 || tokenInputs.length > 0 ? 'TRANSFER' : 'UNKNOWN'),
+      source: 'Raydium',
+      events: {
+        swap: {
+          tokenInputs,
+          tokenOutputs
+        }
+      }
+    };
+  }
 }

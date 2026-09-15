@@ -422,7 +422,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {bestBot ? (
             <div className="mt-3 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300">
-              <span className="font-bold">Top Performing:</span> {bestBot.name} (+{bestBot.totalReturnPercent.toFixed(2)}%)
+              <span className="font-bold">Top Performing:</span> {bestBot.name} ({bestBot.totalReturnPercent >= 0 ? '+' : ''}{bestBot.totalReturnPercent.toFixed(2)}%)
             </div>
           ) : (
             <div className="mt-3 p-2 bg-zinc-950/40 border border-zinc-800/40 rounded text-xs text-zinc-400">

@@ -221,4 +221,15 @@ describe('Provider Health Caching, Configurable Intervals, and Secret Protection
     // Zero open positions -> zero pricing requests
     expect(birdeyePriceSpy).not.toHaveBeenCalled();
   });
+
+  it('confirms Solana RPC and Helius failover to connected on-chain stream when primary returns 401', async () => {
+    // Both checkSolanaRpcHealth and checkHeliusHealth should connect via fallback/failover
+    const rpcHealth = await RealDataProviders.checkSolanaRpcHealth();
+    expect(rpcHealth.status).toBe('CONNECTED');
+    expect(rpcHealth.message).toContain('failover active');
+
+    const heliusHealth = await RealDataProviders.checkHeliusHealth();
+    expect(heliusHealth.status).toBe('CONNECTED');
+    expect(heliusHealth.message).toContain('automated failover active');
+  });
 });

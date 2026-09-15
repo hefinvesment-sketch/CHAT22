@@ -505,3 +505,84 @@ export interface ResearchQueryResult {
     regime: string;
   }[];
 }
+
+export type StrategyStatus = 'ACTIVE' | 'PAUSED' | 'WAITING_FOR_DATA' | 'DEGRADED';
+export type SampleStatus = 'INSUFFICIENT_SAMPLE' | 'VALID_SAMPLE';
+
+export interface StrategyDefinition {
+  key: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  eligibilityRules: {
+    minAlphaScore: number;
+    minTraderSkill: number;
+    minCopyability: number;
+    minIndependentWallets: number;
+    minLiquidityUsd: number;
+    maxPriceDisplacementPercent: number;
+    allowedRegimes?: string[];
+    requiresConsensus?: boolean;
+    requiresConvictionSurprise?: boolean;
+    requiresFlowAcceleration?: boolean;
+    requiresEmergingTrader?: boolean;
+    maxHistoricalAdverseExcursionPercent?: number;
+  };
+  positionSizingRules: {
+    allocationPercent: number;
+    maxPositions: number;
+    maxTokenExposurePercent: number;
+  };
+  riskRules: {
+    stopLossPercent: number;
+    takeProfitPercent: number;
+    trailingStopPercent?: number;
+    maxDrawdownStopPercent?: number;
+  };
+}
+
+export interface StrategyDecisionRecord {
+  id: string;
+  strategyKey: string;
+  signalId: string;
+  decision: 'ELIGIBLE' | 'WATCHED' | 'REJECTED' | 'TRADED';
+  reason: string;
+  evaluatedAt: string;
+  alphaScore: number;
+  featureSnapshot: Record<string, any>;
+}
+
+export interface StrategyPortfolio extends PaperPortfolio {
+  status: StrategyStatus;
+  strategyDefinition: StrategyDefinition;
+  closedTradesCount: number;
+  sampleStatus: SampleStatus;
+  winsCount: number;
+  lossesCount: number;
+  winRatePercent: number | null;
+  profitFactor: number | null;
+  sharpeRatio: number | null;
+  expectedValuePerTradeUsd: number | null;
+  provenanceStatus?: 'LIVE' | 'DEMO' | 'HISTORICAL';
+}
+
+export type FeatureProvenanceStatus =
+  | 'OBSERVED'
+  | 'DERIVED'
+  | 'MODELED_EXECUTION'
+  | 'INSUFFICIENT_DATA'
+  | 'MOCK'
+  | 'DEMO'
+  | 'HARDCODED'
+  | 'FIXTURE'
+  | 'SYNTHETIC_ESTIMATE';
+
+export interface FeatureProvenanceRecord {
+  featureName: string;
+  value: any;
+  source: string;
+  timestamp: string;
+  sampleSize?: number;
+  status: FeatureProvenanceStatus;
+}
+

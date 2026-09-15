@@ -36,6 +36,7 @@ export interface StorageAdapter {
   saveTransaction(tx: ParsedTransactionRecord): Promise<void>;
   saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void>;
   getTransactions(limit?: number): Promise<ParsedTransactionRecord[]>;
+  getTransactionsForToken(tokenAddress: string, fromTimestamp?: string, toTimestamp?: string): Promise<ParsedTransactionRecord[]>;
   saveToken(token: TokenMarketData): Promise<void>;
   getTokens(): Promise<TokenMarketData[]>;
   saveProviderHealth(record: {
@@ -374,69 +375,122 @@ export class PostgresPersistenceStore implements StorageAdapter {
       signal.priceDisplacementFromVwapPercent,
       signal.currentRegime
     ]);
+
+    if (signal.features) {
+      await this.pool.query(
+        `INSERT INTO signal_features (
+          signal_id, trader_skill_score, copyability_score, independent_consensus_score,
+          conviction_surprise_score, smart_money_acceleration_score, entry_quality_score,
+          liquidity_token_quality_score, regime_fit_score, emerging_trader_score,
+          total_penalties, penalties_detail
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (signal_id) DO UPDATE SET
+          trader_skill_score = EXCLUDED.trader_skill_score,
+          copyability_score = EXCLUDED.copyability_score,
+          independent_consensus_score = EXCLUDED.independent_consensus_score,
+          conviction_surprise_score = EXCLUDED.conviction_surprise_score,
+          smart_money_acceleration_score = EXCLUDED.smart_money_acceleration_score,
+          entry_quality_score = EXCLUDED.entry_quality_score,
+          liquidity_token_quality_score = EXCLUDED.liquidity_token_quality_score,
+          regime_fit_score = EXCLUDED.regime_fit_score,
+          emerging_trader_score = EXCLUDED.emerging_trader_score,
+          total_penalties = EXCLUDED.total_penalties,
+          penalties_detail = EXCLUDED.penalties_detail;`,
+        [
+          signal.id,
+          signal.features.traderSkillScore,
+          signal.features.copyabilityScore,
+          signal.features.independentConsensusScore,
+          signal.features.convictionSurpriseScore,
+          signal.features.smartMoneyAccelerationScore,
+          signal.features.entryQualityScore,
+          signal.features.liquidityTokenQualityScore,
+          signal.features.regimeFitScore,
+          signal.features.emergingTraderScore,
+          signal.features.totalPenalties,
+          JSON.stringify(signal.features.penalties || {})
+        ]
+      );
+    }
   }
 
   public async getSignals(limit: number = 50): Promise<AlphaSignal[]> {
     if (!this.pool) return [];
-    const res = await this.pool.query('SELECT * FROM signals ORDER BY timestamp DESC LIMIT $1', [limit]);
-    return res.rows.map(row => ({
-      id: row.id,
-      tokenSymbol: row.token_symbol,
-      tokenAddress: row.token_address,
-      timestamp: new Date(row.timestamp).toISOString(),
-      alphaScore: row.alpha_score,
-      signalState: row.signal_state as any,
-      decision: row.decision_status as any,
-      rejectionReason: row.rejection_reason,
-      rejectionCode: row.rejection_code,
-      liquidityUsd: 2500000,
-      independentEliteCount: row.independent_elite_count,
-      totalSmartMoneyInflowUsd: parseFloat(row.total_smart_money_inflow_usd),
-      priceAtSignal: parseFloat(row.price_at_signal),
-      priceDisplacementFromVwapPercent: parseFloat(row.price_displacement_from_vwap_percent),
-      currentRegime: row.market_regime as any,
-      features: {
-        traderSkillScore: 85,
-        copyabilityScore: 80,
-        independentConsensusScore: 82,
-        convictionSurpriseScore: 78,
-        smartMoneyAccelerationScore: 80,
-        entryQualityScore: 84,
-        liquidityTokenQualityScore: 80,
-        regimeFitScore: 82,
-        emergingTraderScore: 70,
-        penalties: {
-          crowdingPenalty: 0,
-          relatedWalletsPenalty: 0,
-          poorLiquidityPenalty: 0,
-          pricePumpedPenalty: 0,
-          suspiciousTokenStructurePenalty: 0,
-          highSlippagePenalty: 0,
-          traderDeteriorationPenalty: 0,
-          insufficientSamplePenalty: 0,
-          profitConcentrationPenalty: 0
+    const query = `
+      SELECT s.*, f.trader_skill_score, f.copyability_score, f.independent_consensus_score,
+             f.conviction_surprise_score, f.smart_money_acceleration_score, f.entry_quality_score,
+             f.liquidity_token_quality_score, f.regime_fit_score, f.emerging_trader_score,
+             f.total_penalties, f.penalties_detail,
+             o.return_5m_percent, o.return_15m_percent, o.return_1h_percent, o.return_4h_percent,
+             o.return_24h_percent, o.return_3d_percent, o.return_7d_percent,
+             o.max_favorable_excursion_percent, o.max_adverse_excursion_percent
+      FROM signals s
+      LEFT JOIN signal_features f ON s.id = f.signal_id
+      LEFT JOIN signal_outcomes o ON s.id = o.signal_id
+      ORDER BY s.timestamp DESC LIMIT $1
+    `;
+    const res = await this.pool.query(query, [limit]);
+    return res.rows.map(row => {
+      const hasStoredFeatures = row.trader_skill_score !== null && row.trader_skill_score !== undefined;
+      return {
+        id: row.id,
+        tokenSymbol: row.token_symbol,
+        tokenAddress: row.token_address,
+        timestamp: new Date(row.timestamp).toISOString(),
+        alphaScore: row.alpha_score,
+        signalState: row.signal_state as any,
+        decision: row.decision_status as any,
+        rejectionReason: row.rejection_reason || (hasStoredFeatures ? undefined : 'LEGACY_INCOMPLETE'),
+        rejectionCode: row.rejection_code,
+        liquidityUsd: undefined,
+        independentEliteCount: row.independent_elite_count,
+        totalSmartMoneyInflowUsd: parseFloat(row.total_smart_money_inflow_usd),
+        priceAtSignal: parseFloat(row.price_at_signal),
+        priceDisplacementFromVwapPercent: parseFloat(row.price_displacement_from_vwap_percent),
+        currentRegime: row.market_regime as any,
+        features: {
+          traderSkillScore: row.trader_skill_score ?? null,
+          copyabilityScore: row.copyability_score ?? null,
+          independentConsensusScore: row.independent_consensus_score ?? null,
+          convictionSurpriseScore: row.conviction_surprise_score ?? null,
+          smartMoneyAccelerationScore: row.smart_money_acceleration_score ?? null,
+          entryQualityScore: row.entry_quality_score ?? null,
+          liquidityTokenQualityScore: row.liquidity_token_quality_score ?? null,
+          regimeFitScore: row.regime_fit_score ?? null,
+          emergingTraderScore: row.emerging_trader_score ?? null,
+          penalties: row.penalties_detail || {
+            crowdingPenalty: 0,
+            relatedWalletsPenalty: 0,
+            poorLiquidityPenalty: 0,
+            pricePumpedPenalty: 0,
+            suspiciousTokenStructurePenalty: 0,
+            highSlippagePenalty: 0,
+            traderDeteriorationPenalty: 0,
+            insufficientSamplePenalty: 0,
+            profitConcentrationPenalty: 0
+          },
+          totalPenalties: row.total_penalties || 0
         },
-        totalPenalties: 0
-      },
-      participantWallets: [],
-      historicalExpectancy: {
-        similarEventsCount: 20,
-        winRatePercent: 70,
-        averageWinnerPercent: 12.5,
-        averageLoserPercent: -4.5,
-        medianReturnPercent: 8.2,
-        grossEvPercent: 7.4,
-        executionCostPercent: 1.2,
-        netEvPercent: 6.2,
-        maxFavorableExcursionPercent: 18.0,
-        maxAdverseExcursionPercent: -3.5,
-        return5mPercent: 1.2,
-        return15mPercent: 2.5,
-        return1hPercent: 4.8,
-        return4hPercent: 8.2,
-        return24hPercent: 11.5
-      }
-    }));
+        participantWallets: [],
+        historicalExpectancy: {
+          similarEventsCount: 0,
+          winRatePercent: 0,
+          averageWinnerPercent: 0,
+          averageLoserPercent: 0,
+          medianReturnPercent: 0,
+          grossEvPercent: 0,
+          executionCostPercent: 0,
+          netEvPercent: 0,
+          maxFavorableExcursionPercent: parseFloat(row.max_favorable_excursion_percent) || 0,
+          maxAdverseExcursionPercent: parseFloat(row.max_adverse_excursion_percent) || 0,
+          return5mPercent: parseFloat(row.return_5m_percent) || 0,
+          return15mPercent: parseFloat(row.return_15m_percent) || 0,
+          return1hPercent: parseFloat(row.return_1h_percent) || 0,
+          return4hPercent: parseFloat(row.return_4h_percent) || 0,
+          return24hPercent: parseFloat(row.return_24h_percent) || 0
+        }
+      };
+    });
   }
 
   public async saveRiskEvent(event: {
@@ -671,6 +725,49 @@ export class PostgresPersistenceStore implements StorageAdapter {
     }
   }
 
+  public async getTransactionsForToken(
+    tokenAddress: string,
+    fromTimestamp?: string,
+    toTimestamp?: string
+  ): Promise<ParsedTransactionRecord[]> {
+    if (!this.pool) return [];
+    try {
+      let query = `SELECT * FROM wallet_trades WHERE LOWER(token_address) = LOWER($1)`;
+      const params: any[] = [tokenAddress];
+      if (fromTimestamp) {
+        params.push(fromTimestamp);
+        query += ` AND timestamp >= $${params.length}`;
+      }
+      if (toTimestamp) {
+        params.push(toTimestamp);
+        query += ` AND timestamp <= $${params.length}`;
+      }
+      query += ` ORDER BY timestamp ASC`;
+      const res = await this.pool.query(query, params);
+      return res.rows.map(row => ({
+        signature: row.signature,
+        slot: 0,
+        timestamp: new Date(row.timestamp).toISOString(),
+        walletAddress: row.wallet_address,
+        dex: 'Solana DEX',
+        tradeDirection: row.trade_direction,
+        tokenInAddress: row.trade_direction === 'BUY' ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' : row.token_address,
+        tokenInSymbol: row.trade_direction === 'BUY' ? 'USDC' : row.token_symbol,
+        tokenInAmount: parseFloat(row.token_amount),
+        tokenOutAddress: row.trade_direction === 'BUY' ? row.token_address : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        tokenOutSymbol: row.trade_direction === 'BUY' ? row.token_symbol : 'USDC',
+        tokenOutAmount: parseFloat(row.token_amount),
+        executionPriceUsd: parseFloat(row.execution_price_usd),
+        usdValue: parseFloat(row.usd_value),
+        transactionFeeUsd: parseFloat(row.fee_usd),
+        isStablecoinRotation: false,
+        isAirdropOrTransfer: row.is_airdrop_or_transfer
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   public async saveToken(token: TokenMarketData): Promise<void> {
     if (!this.pool) return;
     try {
@@ -854,6 +951,22 @@ export class MemoryPersistenceStore implements StorageAdapter {
 
   public async getTransactions(limit: number = 100): Promise<ParsedTransactionRecord[]> {
     return this.transactions.slice(0, limit);
+  }
+
+  public async getTransactionsForToken(
+    tokenAddress: string,
+    fromTimestamp?: string,
+    toTimestamp?: string
+  ): Promise<ParsedTransactionRecord[]> {
+    return this.transactions.filter(tx => {
+      const matchToken = (tx.tokenInAddress && tx.tokenInAddress.toLowerCase() === tokenAddress.toLowerCase()) ||
+                         (tx.tokenOutAddress && tx.tokenOutAddress.toLowerCase() === tokenAddress.toLowerCase());
+      if (!matchToken) return false;
+      const txTime = new Date(tx.timestamp).getTime();
+      if (fromTimestamp && txTime < new Date(fromTimestamp).getTime()) return false;
+      if (toTimestamp && txTime > new Date(toTimestamp).getTime()) return false;
+      return true;
+    });
   }
 
   public async saveToken(token: TokenMarketData): Promise<void> {

@@ -25,6 +25,7 @@ import { HeliusIngestionWorker } from './src/services/heliusIngestionWorker';
 import { WalletDiscoveryService } from './src/services/walletDiscovery';
 import { SmartMoneyFlowEngine } from './src/services/smartMoneyFlow';
 import { WalletRelationshipGraph } from './src/services/walletGraph';
+import { StrategyLabEngine } from './src/services/strategyLabEngine';
 import { 
   BacktestConfig, 
   ResearchQueryFilter, 
@@ -233,6 +234,14 @@ async function initializeState() {
       currentPortfolio = cleanLivePortfolio;
     }
 
+    // Initialize Strategy Lab Engine for 10 parallel portfolios
+    try {
+      await StrategyLabEngine.init(storage, APP_MODE);
+      console.log(`[Strategy Lab]: Successfully initialized 10 parallel strategy portfolios.`);
+    } catch (err: any) {
+      console.warn('[Strategy Lab]: Initialization warning:', err.message);
+    }
+
     // 1. Verify provider health before setting systemReady
     console.log('[System]: Verifying provider health before READY...');
     const providerRecords = await getCachedProviderHealth(true);
@@ -278,6 +287,11 @@ async function initializeState() {
               const idx = signals.findIndex(e => e.id === s.id);
               if (idx >= 0) signals[idx] = s;
               else signals.unshift(s);
+
+              // Evaluate signal across Strategy Lab parallel hypotheses
+              StrategyLabEngine.evaluateSignalAcrossStrategies(s, storage, APP_MODE).catch(err => {
+                console.warn('[StrategyLabEngine]: Signal evaluation error:', err.message);
+              });
             }
             signals = signals.slice(0, 50);
           }
@@ -328,6 +342,13 @@ async function initializeState() {
             console.warn('[Continuous MTM Worker]:', err.message);
           }
         }
+
+        // Strategy Lab Mark-to-Market
+        try {
+          await StrategyLabEngine.markToMarket(storage, APP_MODE);
+        } catch (err: any) {
+          console.warn('[StrategyLabEngine MTM]:', err.message);
+        }
       }, 4000);
       console.log('[System]: Continuous Mark-to-Market Worker active.');
     }
@@ -353,6 +374,12 @@ async function initializeState() {
     tokens = [...MOCK_TOKENS];
     liveEvents = [...MOCK_LIVE_EVENTS];
     systemReady = true;
+
+    try {
+      await StrategyLabEngine.init(storage, APP_MODE);
+    } catch (e: any) {
+      console.warn('[StrategyLabEngine demo init]:', e.message);
+    }
 
     // Strict double-entry reconciliation
     try {
@@ -502,7 +529,9 @@ app.get('/api/state', async (req: Request, res: Response) => {
     },
     liveEvents,
     settings: systemSettings,
-    parallelBots: APP_MODE === 'live_paper' ? [] : parallelBots,
+    parallelBots: StrategyLabEngine.isEngineInitialized()
+      ? StrategyLabEngine.getBotPortfolios()
+      : (APP_MODE === 'live_paper' ? [] : parallelBots),
     portfolioAudit: audit
   });
 });
@@ -540,7 +569,56 @@ app.get('/api/portfolio/audit', (req: Request, res: Response) => {
 });
 
 app.get('/api/portfolios/bots', (req: Request, res: Response) => {
-  res.json(parallelBots);
+  if (StrategyLabEngine.isEngineInitialized()) {
+    return res.json(StrategyLabEngine.getBotPortfolios());
+  }
+  res.json(APP_MODE === 'live_paper' ? [] : parallelBots);
+});
+
+// Strategy Lab Endpoints
+app.get('/api/strategy-lab/bots', (req: Request, res: Response) => {
+  if (StrategyLabEngine.isEngineInitialized()) {
+    return res.json(StrategyLabEngine.getBotPortfolios());
+  }
+  res.json(APP_MODE === 'live_paper' ? [] : parallelBots);
+});
+
+app.get('/api/strategy-lab/decisions', (req: Request, res: Response) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const strategies = StrategyLabEngine.getStrategies();
+  const allDecisions: any[] = [];
+  for (const s of strategies) {
+    const decs = StrategyLabEngine.getDecisions(s.strategyKey);
+    allDecisions.push(...decs);
+  }
+  allDecisions.sort((a, b) => new Date(b.evaluatedAt).getTime() - new Date(a.evaluatedAt).getTime());
+  res.json(allDecisions.slice(0, limit));
+});
+
+app.get('/api/strategy-lab/summary', (req: Request, res: Response) => {
+  const strategies = StrategyLabEngine.getStrategies();
+  const sorted = [...strategies].sort((a, b) => (b.totalReturnPercent || 0) - (a.totalReturnPercent || 0));
+  res.json({
+    totalHypotheses: strategies.length,
+    activeHypotheses: strategies.filter(s => s.status === 'ACTIVE').length,
+    totalEquityUsd: strategies.reduce((sum, s) => sum + (s.totalEquityUsd || 5000), 0),
+    bestPerformer: sorted[0] || null,
+    worstPerformer: sorted[sorted.length - 1] || null
+  });
+});
+
+app.get('/api/strategy-lab/:key', (req: Request, res: Response) => {
+  const strat = StrategyLabEngine.getStrategy(req.params.key);
+  if (!strat) return res.status(404).json({ error: 'Strategy not found' });
+  const openPositions = StrategyLabEngine.getOpenPositions(req.params.key);
+  const closedTrades = StrategyLabEngine.getClosedTrades(req.params.key);
+  const decisions = StrategyLabEngine.getDecisions(req.params.key);
+  res.json({
+    strategy: strat,
+    openPositions,
+    closedTrades,
+    decisions
+  });
 });
 
 app.get('/api/signals', (req: Request, res: Response) => {
@@ -605,23 +683,26 @@ app.get('/api/tokens', (req: Request, res: Response) => {
 });
 
 // Empirical Smart Money Flow
-app.get('/api/flows', (req: Request, res: Response) => {
+app.get('/api/flows', async (req: Request, res: Response) => {
   const walletMap = new Map(wallets.map(w => [w.address, w]));
 
-  const flowMatrix = tokens.map(t => {
-    // Generate empirical flow from real time windows
-    const flows = SmartMoneyFlowEngine.calculateFlow(t.address, [], walletMap);
-    const flow24h = flows['24h']?.netEliteFlowUsd || t.netFlow24hUsd || 0;
+  const flowMatrix = await Promise.all(tokens.map(async t => {
+    // Generate empirical flow from real stored transactions
+    const tokenTxs = await storage.getTransactionsForToken(t.address);
+    const flows = SmartMoneyFlowEngine.calculateFlow(t.address, tokenTxs, walletMap);
+    const flow24h = flows['24h']?.netEliteFlowUsd || 0;
+    const vwap = flows['24h']?.smartMoneyVwap || t.smartMoneyVwap || t.priceUsd;
+    const displacement = vwap > 0 ? Number((((t.priceUsd - vwap) / vwap) * 100).toFixed(2)) : 0;
 
     return {
       symbol: t.symbol,
       address: t.address,
       priceUsd: t.priceUsd,
-      smartMoneyVwap: flows['24h']?.smartMoneyVwap || t.smartMoneyVwap,
-      vwapDisplacementPercent: Number((((t.priceUsd - t.smartMoneyVwap) / t.smartMoneyVwap) * 100).toFixed(2)),
+      smartMoneyVwap: vwap,
+      vwapDisplacementPercent: displacement,
       netFlow24hUsd: flow24h,
-      velocityScore: Math.min(100, Math.max(0, Math.round(50 + (flow24h / 50000)))),
-      accelerationScore: Math.min(100, Math.max(0, Math.round(50 + (flow24h / 40000)))),
+      velocityScore: Math.min(100, Math.max(0, Math.round(50 + (flows['24h']?.velocityUsdPerMinute || 0)))),
+      accelerationScore: Math.min(100, Math.max(0, Math.round(50 + (flows['5m']?.accelerationUsdPerMinuteSq || 0)))),
       timeframes: {
         '1m': { netUsd: flows['1m']?.netEliteFlowUsd || 0, buyers: flows['1m']?.independentBuyersCount || 0, velocity: flows['1m']?.velocityUsdPerMinute || 0 },
         '5m': { netUsd: flows['5m']?.netEliteFlowUsd || 0, buyers: flows['5m']?.independentBuyersCount || 0, velocity: flows['5m']?.velocityUsdPerMinute || 0 },
@@ -632,7 +713,7 @@ app.get('/api/flows', (req: Request, res: Response) => {
         '24h': { netUsd: flow24h, buyers: flows['24h']?.independentBuyersCount || 0, velocity: flows['24h']?.velocityUsdPerMinute || 0 }
       }
     };
-  });
+  }));
 
   res.json(flowMatrix);
 });
@@ -746,12 +827,33 @@ const handleCloseTradeRequest = async (req: Request, res: Response) => {
   if (!pos) return res.status(404).json({ error: 'Position not found' });
 
   try {
+    let exitPrice = pos.currentPrice;
+    if (APP_MODE === 'live_paper') {
+      try {
+        const tokenDecimals = await RealDataProviders.getTokenDecimals(pos.tokenAddress);
+        const amountRaw = Math.round(pos.amount * Math.pow(10, tokenDecimals));
+        const quote = await RealDataProviders.getJupiterQuote(
+          pos.tokenAddress,
+          'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+          amountRaw
+        );
+        if (quote.outAmountUi > 0 && pos.amount > 0) {
+          exitPrice = quote.outAmountUi / pos.amount;
+        }
+      } catch (err: any) {
+        return res.status(503).json({
+          error: 'EXIT_QUOTE_UNAVAILABLE',
+          message: `Cannot execute exit without real executable quote: ${err.message}`
+        });
+      }
+    }
+
     const result = PortfolioAccountingEngine.closePosition(
       currentPortfolio,
       openPositions,
       tradeHistory,
       positionId,
-      pos.currentPrice,
+      exitPrice,
       exitReason
     );
 

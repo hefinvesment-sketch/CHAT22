@@ -104,16 +104,13 @@ export class HeliusIngestionWorker {
     this.isPolling = true;
 
     try {
-      const apiKey = process.env.HELIUS_API_KEY;
-      if (!apiKey) {
-        return;
-      }
+      const apiKey = RealDataProviders.getHeliusApiKey();
 
       // Cycle through monitored DEX programs
       const targetProgram = MONITORED_PROGRAMS[this.programIndex % MONITORED_PROGRAMS.length];
       this.programIndex++;
 
-      const rpcEndpoint = process.env.SOLANA_RPC_URL || `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+      const rpcEndpoint = await RealDataProviders.getWorkingSolanaRpcUrl();
 
       // 1. Fetch recent signatures for monitored DEX program
       const sigRes = await fetch(rpcEndpoint, {
@@ -166,18 +163,48 @@ export class HeliusIngestionWorker {
         return;
       }
 
-      // 2. Fetch enhanced parsed transactions from Helius
-      const enhRes = await fetch(`https://api.helius.xyz/v0/transactions/?api-key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: newSigs.slice(0, 10) })
-      });
-
-      if (!enhRes.ok) {
-        return;
+      // 2. Fetch enhanced parsed transactions from Helius (with fallback to direct Solana RPC)
+      let rawTxs: any[] = [];
+      if (apiKey) {
+        try {
+          const enhRes = await fetch(`https://api.helius.xyz/v0/transactions/?api-key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactions: newSigs.slice(0, 10) })
+          });
+          if (enhRes.ok) {
+            rawTxs = await enhRes.json();
+          }
+        } catch {
+          // Fall back to Solana RPC below
+        }
       }
 
-      const rawTxs: any[] = await enhRes.json();
+      if (!Array.isArray(rawTxs) || rawTxs.length === 0) {
+        // Direct Solana RPC getTransaction fallback
+        for (const sig of newSigs.slice(0, 4)) {
+          try {
+            const txRes = await fetch(rpcEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getTransaction',
+                params: [sig, { maxSupportedTransactionVersion: 0, encoding: 'jsonParsed' }]
+              })
+            });
+            if (txRes.ok) {
+              const txJson = await txRes.json();
+              if (txJson.result) {
+                rawTxs.push(HeliusTransactionParser.mapSolanaRpcTransaction(txJson.result, sig));
+              }
+            }
+          } catch {
+            // ignore individual RPC errors
+          }
+        }
+      }
       if (!Array.isArray(rawTxs) || rawTxs.length === 0) {
         return;
       }
