@@ -583,16 +583,14 @@ app.get('/api/strategy-lab/bots', (req: Request, res: Response) => {
   res.json(APP_MODE === 'live_paper' ? [] : parallelBots);
 });
 
-app.get('/api/strategy-lab/decisions', (req: Request, res: Response) => {
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
-  const strategies = StrategyLabEngine.getStrategies();
-  const allDecisions: any[] = [];
-  for (const s of strategies) {
-    const decs = StrategyLabEngine.getDecisions(s.strategyKey);
-    allDecisions.push(...decs);
+app.get('/api/strategy-lab/decisions', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const allDecisions = await storage.getStrategyDecisions(limit);
+    res.json(allDecisions);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-  allDecisions.sort((a, b) => new Date(b.evaluatedAt).getTime() - new Date(a.evaluatedAt).getTime());
-  res.json(allDecisions.slice(0, limit));
 });
 
 app.get('/api/strategy-lab/summary', (req: Request, res: Response) => {

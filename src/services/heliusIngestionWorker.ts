@@ -1,3 +1,4 @@
+import { TokenResolver } from './tokenResolver';
 import { StorageAdapter } from './persistence';
 import { HeliusTransactionParser, ParsedTransactionRecord } from './heliusParser';
 import { WalletDiscoveryService } from './walletDiscovery';
@@ -281,16 +282,23 @@ export class HeliusIngestionWorker {
           // fallback to tx execution price
         }
 
+        // Resolve Token Metadata
+        const metadata = await TokenResolver.resolveToken(candidateMint);
+        if (metadata === 'INSUFFICIENT_DATA') {
+          console.warn(`[HeliusIngestion] Dropping signal: Insufficient token metadata for ${candidateMint}`);
+          continue;
+        }
+
         const tokenData: TokenMarketData = {
-          symbol: candidateSymbol || 'SOL-TOKEN',
-          name: `${candidateSymbol} Solana Asset`,
-          address: candidateMint,
-          decimals: 'TOKEN_DECIMALS_UNAVAILABLE',
+          symbol: metadata.symbol,
+          name: metadata.name,
+          address: metadata.address,
+          decimals: metadata.decimals,
           priceUsd: realPrice > 0 ? realPrice : null,
           priceChange1h: null,
           priceChange24h: null,
           volume24hUsd: null,
-          liquidityUsd: null,
+          liquidityUsd: metadata.liquidityUsd,
           marketCapUsd: null,
           fdvUsd: null,
           holderCount: null,
@@ -298,8 +306,8 @@ export class HeliusIngestionWorker {
           top10HoldersPercent: null,
           top20HoldersPercent: null,
           devHoldingsPercent: null,
-          hasFreezeAuthority: null,
-          hasMintAuthority: null,
+          hasFreezeAuthority: !metadata.securityFlags.freezeAuthorityRevoked,
+          hasMintAuthority: !metadata.securityFlags.mintAuthorityRevoked,
           liquidityLockedPercent: null,
           isHoneypotSafe: null,
           riskScore: null,
@@ -311,7 +319,7 @@ export class HeliusIngestionWorker {
         discoveredTokens.push(tokenData);
 
         // Generate Alpha Signal if positive flow and significant swap
-        if (tx.tradeDirection === 'BUY' || tx.usdValue >= 500) {
+        if (tx.tradeDirection === 'BUY' && tx.usdValue >= 500) {
           const createMockEvidence = (val: number | null): FeatureEvidence | null => {
             if (val === null) return null;
             return {
@@ -363,18 +371,18 @@ export class HeliusIngestionWorker {
             signalState,
             decision: 'WATCHED',
             liquidityUsd: tokenData.liquidityUsd || undefined,
-            independentEliteCount: 0,
-            totalSmartMoneyInflowUsd: tx.usdValue,
+            independentEliteCount: null as any,
+            totalSmartMoneyInflowUsd: null as any,
             priceAtSignal: realPrice,
-            priceDisplacementFromVwapPercent: 0,
-            currentRegime: 'Unknown' as any,
+            priceDisplacementFromVwapPercent: null as any,
+            currentRegime: null as any,
             features,
             participantWallets: [{
               address: tx.walletAddress,
-              qualityScore: 0,
-              convictionMultiplier: 1.0,
+              qualityScore: null as any,
+              convictionMultiplier: null as any,
               tradeUsd: tx.usdValue,
-              isIndependent: true
+              isIndependent: false
             }],
             historicalExpectancy: {
               similarEventsCount: 0,

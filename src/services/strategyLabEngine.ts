@@ -354,6 +354,7 @@ export class StrategyLabEngine {
           ? (grossLosses > 0 ? Number((grossProfits / grossLosses).toFixed(2)) : (grossProfits > 0 ? 10.0 : null)) 
           : null;
 
+        const equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
         const stratPortfolio: StrategyPortfolio = {
           ...existing,
           status: def.enabled ? (closedCount > 0 ? 'ACTIVE' : 'WAITING_FOR_DATA') : 'PAUSED',
@@ -370,6 +371,7 @@ export class StrategyLabEngine {
         };
         this.portfolios.set(def.key, stratPortfolio);
       } else {
+        const equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
         const initialPortfolio: StrategyPortfolio = {
           id: def.key,
           name: def.name,
@@ -489,7 +491,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -509,7 +511,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -530,7 +532,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -553,7 +555,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -573,7 +575,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -593,7 +595,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -613,7 +615,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -633,7 +635,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -653,7 +655,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -673,7 +675,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -693,7 +695,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -713,7 +715,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -733,7 +735,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -753,7 +755,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -775,7 +777,7 @@ export class StrategyLabEngine {
             alphaScore: signal.alphaScore,
             featureSnapshot: { ...signal.features }
           };
-          this.recordDecision(def.key, record);
+          await this.recordDecision(def.key, record, storage);
           records.push(record);
           continue;
         }
@@ -797,7 +799,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -818,7 +820,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -840,7 +842,7 @@ export class StrategyLabEngine {
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
         };
-        this.recordDecision(def.key, record);
+        await this.recordDecision(def.key, record, storage);
         records.push(record);
         continue;
       }
@@ -878,7 +880,7 @@ export class StrategyLabEngine {
             alphaScore: signal.alphaScore,
             featureSnapshot: { ...signal.features }
           };
-          this.recordDecision(def.key, record);
+          await this.recordDecision(def.key, record, storage);
           records.push(record);
           continue;
         }
@@ -943,7 +945,7 @@ export class StrategyLabEngine {
         alphaScore: signal.alphaScore,
         featureSnapshot: { ...signal.features }
       };
-      this.recordDecision(def.key, tradedRecord);
+      await this.recordDecision(def.key, tradedRecord, storage);
       records.push(tradedRecord);
     }
 
@@ -1120,21 +1122,38 @@ export class StrategyLabEngine {
       portfolio.lossesCount = losses;
       portfolio.winRatePercent = winRate;
       portfolio.profitFactor = profitFactor;
+      
       portfolio.sampleStatus = closedCount >= MIN_STRATEGY_SAMPLE_TRADES ? 'VALID_SAMPLE' : 'INSUFFICIENT_SAMPLE';
 
+      // Calculate Real Drawdown
+      const peakEquity = portfolio.equityHistory.reduce((max, point) => Math.max(max, point.equity), portfolio.startingCapitalUsd);
+      const currentDrawdown = peakEquity > 0 ? ((totalEquity - peakEquity) / peakEquity) * 100 : 0;
+      portfolio.maxDrawdownPercent = Math.min(portfolio.maxDrawdownPercent, currentDrawdown);
+
       // Append equity point if changed
-      if (portfolio.equityHistory.length === 0 || portfolio.equityHistory[portfolio.equityHistory.length - 1].equity !== totalEquity) {
+      const lastPoint = portfolio.equityHistory.length > 0 ? portfolio.equityHistory[portfolio.equityHistory.length - 1] : null;
+      if (!lastPoint || Math.abs(lastPoint.equity - totalEquity) > 0.01) {
+        const timestampIso = new Date().toISOString();
         portfolio.equityHistory.push({
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: timestampIso,
           equity: Number(totalEquity.toFixed(2)),
-          drawdownPercent: 0,
+          drawdownPercent: Number(currentDrawdown.toFixed(2)),
           solBenchmark: 100,
           btcBenchmark: 100,
           ethBenchmark: 100
         });
+        
+        await storage.saveStrategyEquitySnapshot({
+          id: `snap-${def.key}-${Date.now()}`,
+          strategyKey: def.key,
+          timestamp: timestampIso,
+          equityUsd: Number(totalEquity.toFixed(2)),
+          drawdownPercent: Number(currentDrawdown.toFixed(2))
+        });
       }
 
       await storage.savePortfolio(portfolio);
+
     }
   }
 
@@ -1154,10 +1173,11 @@ export class StrategyLabEngine {
     return true;
   }
 
-  private static recordDecision(strategyKey: string, record: StrategyDecisionRecord): void {
+  private static async recordDecision(strategyKey: string, record: StrategyDecisionRecord, storage?: StorageAdapter): Promise<void> {
     const list = this.decisions.get(strategyKey) || [];
     list.unshift(record);
     if (list.length > 50) list.pop();
     this.decisions.set(strategyKey, list);
+    if (storage) { await storage.saveStrategyDecision(record); }
   }
 }

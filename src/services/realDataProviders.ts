@@ -577,9 +577,13 @@ export class RealDataProviders {
   public static async fetchJupiterQuote(
     inputMint: string,
     outputMint: string,
-    amountRaw: number | string,
+    amountRaw: number,
     slippageBps: number = 50
-  ): Promise<JupiterQuoteRecord> {
+  ): Promise<any> {
+    if (process.env.APP_MODE === 'live_paper' && process.env.LIVE_PAPER_EXECUTION_ENABLED !== 'true') {
+      throw new Error('Jupiter execution blocked: LIVE_PAPER_EXECUTION_ENABLED is false');
+    }
+
     const mode = this.getAppMode();
 
     const inputDecimals = await this.getTokenDecimals(inputMint);
@@ -670,7 +674,7 @@ export class RealDataProviders {
     amountRaw: number | string,
     slippageBps: number = 50
   ): Promise<JupiterQuoteRecord> {
-    return this.fetchJupiterQuote(inputMint, outputMint, amountRaw, slippageBps);
+    return this.fetchJupiterQuote(inputMint, outputMint, Number(amountRaw), slippageBps);
   }
 
   // 6. Jupiter Real-time Price Query (Price V3 API)
@@ -790,6 +794,33 @@ export class RealDataProviders {
   }
 
   // 8. Full Provider System Audit
+
+  public static async getHeliusAsset(mintAddress: string): Promise<any> {
+    const url = await this.getWorkingSolanaRpcUrl();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: '1',
+        method: 'getAsset',
+        params: { id: mintAddress }
+      })
+    });
+    const data = await response.json();
+    return data.result || null;
+  }
+
+  public static async getBirdeyeTokenInfo(mintAddress: string): Promise<any> {
+    const apiKey = process.env.BIRDEYE_API_KEY;
+    if (!apiKey) return null;
+    const response = await fetch(`https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`, {
+      headers: { 'X-API-KEY': apiKey, 'x-chain': 'solana' }
+    });
+    const data = await response.json();
+    return data.success ? data.data : null;
+  }
+
   public static async getAllProviderHealth(storage?: StorageAdapter): Promise<ProviderHealthRecord[]> {
     const mode = this.getAppMode();
 
@@ -836,3 +867,5 @@ export class RealDataProviders {
     return records;
   }
 }
+
+// I will append them at the end.

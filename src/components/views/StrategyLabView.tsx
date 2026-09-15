@@ -157,16 +157,16 @@ export const StrategyLabView: React.FC<StrategyLabViewProps> = ({ bots = [] }) =
                     return (
                       <tr key={idx} className="hover:bg-zinc-800/40">
                         <td className="py-2 text-zinc-400 text-[11px]">
-                          {new Date(dec.timestamp).toLocaleTimeString()}
+                          {new Date(dec.evaluatedAt).toLocaleTimeString()}
                         </td>
                         <td className="py-2 font-semibold text-zinc-200">
-                          {dec.strategyName || dec.strategyId}
+                          {dec.strategyName || dec.strategyKey}
                         </td>
                         <td className="py-2 text-zinc-100 font-bold">
                           {dec.tokenSymbol}
                         </td>
                         <td className="py-2 text-zinc-300">
-                          {dec.alphaScore.toFixed(1)}
+                          {dec.alphaScore !== null ? dec.alphaScore.toFixed(1) : 'N/A'}
                         </td>
                         <td className="py-2 font-bold">
                           <span className={`px-2 py-0.5 rounded text-[10px] ${
@@ -183,7 +183,7 @@ export const StrategyLabView: React.FC<StrategyLabViewProps> = ({ bots = [] }) =
                           ${(dec.allocatedPositionUsd || 0).toFixed(2)}
                         </td>
                         <td className="py-2 text-zinc-400 text-[11px] max-w-md truncate">
-                          {dec.rejectionReason || 'Strategy threshold met'}
+                          {dec.reason || 'Strategy threshold met'}
                         </td>
                       </tr>
                     );

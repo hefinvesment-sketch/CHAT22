@@ -34,6 +34,17 @@ export interface RiskEvaluationResult {
 }
 
 export class RiskEngine {
+
+  /**
+   * Prevents synthetic/mock data from executing in live environments.
+   */
+  private static assertNoSyntheticLiveData(signal: AlphaSignal): void {
+    const jsonStr = JSON.stringify(signal);
+    if (jsonStr.includes('MOCK') || jsonStr.includes('FIXTURE') || jsonStr.includes('SYNTHETIC_ESTIMATE') || jsonStr.includes('DEMO')) {
+      throw new Error('FATAL: Synthetic data detected in live execution pipeline. Trade aborted.');
+    }
+  }
+
   /**
    * Centralized institutional risk enforcement:
    * Every proposed paper trade (live_paper or historical_backtest) MUST pass all checks.
@@ -45,11 +56,27 @@ export class RiskEngine {
     openPositions: PaperPosition[],
     settings: SystemSettings,
     options?: {
+
+
       marketDataTimestampMs?: number;
       maxDataAgeMs?: number;
       tokenSecurityFlags?: { mintRevoked: boolean; freezeRevoked: boolean; lpBurned: boolean };
     }
   ): RiskEvaluationResult {
+    // 0. Ensure no synthetic data in live environments
+    if (process.env.APP_MODE === 'live_paper' || process.env.APP_MODE === 'historical_backtest') {
+      this.assertNoSyntheticLiveData(signal);
+    }
+
+    // 0. Ensure signal evidence is complete
+    if (signal.dataStatus !== 'COMPLETE' || signal.alphaScore === null) {
+      return {
+        passed: false,
+        code: 'INSUFFICIENT_SIGNAL_DATA' as any,
+        reason: 'Signal evidence is incomplete.'
+      };
+    }
+
     // 1. Data Freshness Check (Stale Data)
     if (options?.marketDataTimestampMs) {
       const maxAgeMs = options.maxDataAgeMs ?? 30000; // 30s

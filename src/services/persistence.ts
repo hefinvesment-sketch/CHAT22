@@ -39,6 +39,13 @@ export interface StorageAdapter {
   getTransactionsForToken(tokenAddress: string, fromTimestamp?: string, toTimestamp?: string): Promise<ParsedTransactionRecord[]>;
   saveToken(token: TokenMarketData): Promise<void>;
   getTokens(): Promise<TokenMarketData[]>;
+
+  saveStrategyDecision(record: any): Promise<void>;
+  getStrategyDecisions(limit?: number): Promise<any[]>;
+  getStrategyDecisionsForStrategy(strategyKey: string, limit?: number): Promise<any[]>;
+  getStrategyDecisionsForSignal(signalId: string): Promise<any[]>;
+  saveStrategyEquitySnapshot(snapshot: any): Promise<void>;
+  getStrategyEquitySnapshots(strategyKey: string, limit?: number): Promise<any[]>;
   saveProviderHealth(record: {
     providerName: string;
     status: string;
@@ -339,21 +346,24 @@ export class PostgresPersistenceStore implements StorageAdapter {
     }));
   }
 
+
+
+
   public async saveSignal(signal: AlphaSignal): Promise<void> {
     if (!this.pool) throw new Error('Database pool not ready');
     await this.pool.query(
       `INSERT INTO tokens (address, symbol, name, liquidity_usd) VALUES ($1, $2, $3, $4)
        ON CONFLICT (address) DO UPDATE SET liquidity_usd = EXCLUDED.liquidity_usd;`,
-      [signal.tokenAddress, signal.tokenSymbol, signal.tokenSymbol, signal.liquidityUsd || 0]
+      [signal.tokenAddress, signal.tokenSymbol, signal.tokenSymbol, signal.liquidityUsd || null]
     );
 
     const query = `
       INSERT INTO signals (
-        id, token_address, token_symbol, timestamp, alpha_score, signal_state,
+        id, token_address, token_symbol, timestamp, alpha_score, data_status, signal_state,
         decision_status, rejection_reason, rejection_code, independent_elite_count,
         total_smart_money_inflow_usd, price_at_signal, price_displacement_from_vwap_percent,
         market_regime
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       ON CONFLICT (id) DO UPDATE SET
         decision_status = EXCLUDED.decision_status,
         rejection_reason = EXCLUDED.rejection_reason,
@@ -365,6 +375,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
       signal.tokenSymbol,
       signal.timestamp,
       signal.alphaScore,
+      signal.dataStatus,
       signal.signalState,
       signal.decision,
       signal.rejectionReason || null,
@@ -398,67 +409,124 @@ export class PostgresPersistenceStore implements StorageAdapter {
           penalties_detail = EXCLUDED.penalties_detail;`,
         [
           signal.id,
-          signal.features.traderSkillScore,
-          signal.features.copyabilityScore,
-          signal.features.independentConsensusScore,
-          signal.features.convictionSurpriseScore,
-          signal.features.smartMoneyAccelerationScore,
-          signal.features.entryQualityScore,
-          signal.features.liquidityTokenQualityScore,
-          signal.features.regimeFitScore,
-          signal.features.emergingTraderScore,
+          signal.features.traderSkillScore?.value ?? null,
+          signal.features.copyabilityScore?.value ?? null,
+          signal.features.independentConsensusScore?.value ?? null,
+          signal.features.convictionSurpriseScore?.value ?? null,
+          signal.features.smartMoneyAccelerationScore?.value ?? null,
+          signal.features.entryQualityScore?.value ?? null,
+          signal.features.liquidityTokenQualityScore?.value ?? null,
+          signal.features.regimeFitScore?.value ?? null,
+          signal.features.emergingTraderScore?.value ?? null,
           signal.features.totalPenalties,
           JSON.stringify(signal.features.penalties || {})
         ]
       );
+
+      const featureKeys = [
+        'traderSkillScore', 'copyabilityScore', 'independentConsensusScore',
+        'convictionSurpriseScore', 'smartMoneyAccelerationScore', 'entryQualityScore',
+        'liquidityTokenQualityScore', 'regimeFitScore', 'emergingTraderScore'
+      ] as const;
+      
+      for (const key of featureKeys) {
+        const evidence = signal.features[key] as any;
+        if (evidence) {
+          await this.pool.query(
+            `INSERT INTO signal_feature_evidence (
+              signal_id, feature_name, value, status, source, observed_at, sample_size
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (signal_id, feature_name) DO UPDATE SET
+              value = EXCLUDED.value, status = EXCLUDED.status, source = EXCLUDED.source,
+              observed_at = EXCLUDED.observed_at, sample_size = EXCLUDED.sample_size;`,
+            [
+              signal.id, key, evidence.value, evidence.status, evidence.source,
+              evidence.timestamp, evidence.sampleSize ?? null
+            ]
+          );
+        }
+      }
     }
   }
 
   public async getSignals(limit: number = 50): Promise<AlphaSignal[]> {
     if (!this.pool) return [];
+    
     const query = `
-      SELECT s.*, f.trader_skill_score, f.copyability_score, f.independent_consensus_score,
-             f.conviction_surprise_score, f.smart_money_acceleration_score, f.entry_quality_score,
-             f.liquidity_token_quality_score, f.regime_fit_score, f.emerging_trader_score,
-             f.total_penalties, f.penalties_detail,
-             o.return_5m_percent, o.return_15m_percent, o.return_1h_percent, o.return_4h_percent,
+      SELECT s.*, o.return_5m_percent, o.return_15m_percent, o.return_1h_percent, o.return_4h_percent,
              o.return_24h_percent, o.return_3d_percent, o.return_7d_percent,
-             o.max_favorable_excursion_percent, o.max_adverse_excursion_percent
+             o.max_favorable_excursion_percent, o.max_adverse_excursion_percent,
+             f.total_penalties, f.penalties_detail
       FROM signals s
       LEFT JOIN signal_features f ON s.id = f.signal_id
       LEFT JOIN signal_outcomes o ON s.id = o.signal_id
       ORDER BY s.timestamp DESC LIMIT $1
     `;
     const res = await this.pool.query(query, [limit]);
+    if (res.rows.length === 0) return [];
+    
+    const signalIds = res.rows.map(r => r.id);
+    
+    const evidenceRes = await this.pool.query(`
+      SELECT signal_id, feature_name, value, status, source, observed_at, sample_size
+      FROM signal_feature_evidence
+      WHERE signal_id = ANY($1)
+    `, [signalIds]);
+    
+    const evidenceBySignal = new Map<string, Record<string, any>>();
+    for (const row of evidenceRes.rows) {
+      if (!evidenceBySignal.has(row.signal_id)) evidenceBySignal.set(row.signal_id, {});
+      evidenceBySignal.get(row.signal_id)![row.feature_name] = {
+        value: row.value !== null ? parseFloat(row.value) : null,
+        status: row.status,
+        source: row.source,
+        timestamp: new Date(row.observed_at).toISOString(),
+        sampleSize: row.sample_size !== null ? parseInt(row.sample_size) : undefined
+      };
+    }
+
     return res.rows.map(row => {
-      const hasStoredFeatures = row.trader_skill_score !== null && row.trader_skill_score !== undefined;
+      const evidences = evidenceBySignal.get(row.id) || {};
+      
+      const historicalExpectancy = {
+        dataStatus: row.historical_data_status || 'INSUFFICIENT_SAMPLE',
+        similarEventsCount: row.historical_similar_events_count || 0,
+        winRatePercent: row.historical_win_rate !== null ? parseFloat(row.historical_win_rate) : null,
+        averageWinnerPercent: row.historical_avg_winner !== null ? parseFloat(row.historical_avg_winner) : null,
+        averageLoserPercent: row.historical_avg_loser !== null ? parseFloat(row.historical_avg_loser) : null,
+        medianReturnPercent: row.historical_median_return !== null ? parseFloat(row.historical_median_return) : null,
+        grossEvPercent: row.historical_gross_ev !== null ? parseFloat(row.historical_gross_ev) : null,
+        executionCostPercent: row.historical_exec_cost !== null ? parseFloat(row.historical_exec_cost) : null,
+        netEvPercent: row.historical_net_ev !== null ? parseFloat(row.historical_net_ev) : null,
+      };
+
       return {
         id: row.id,
         tokenSymbol: row.token_symbol,
         tokenAddress: row.token_address,
         timestamp: new Date(row.timestamp).toISOString(),
-        alphaScore: row.alpha_score,
-        dataStatus: row.data_status || "COMPLETE",
+        alphaScore: row.alpha_score !== null ? row.alpha_score : null,
+        dataStatus: row.data_status || "INSUFFICIENT_DATA",
         signalState: row.signal_state as any,
         decision: row.decision_status as any,
-        rejectionReason: row.rejection_reason || (hasStoredFeatures ? undefined : 'LEGACY_INCOMPLETE'),
+        rejectionReason: row.rejection_reason,
         rejectionCode: row.rejection_code,
         liquidityUsd: undefined,
-        independentEliteCount: row.independent_elite_count,
-        totalSmartMoneyInflowUsd: parseFloat(row.total_smart_money_inflow_usd),
+        independentEliteCount: row.independent_elite_count !== null ? parseInt(row.independent_elite_count) : null,
+        totalSmartMoneyInflowUsd: row.total_smart_money_inflow_usd !== null ? parseFloat(row.total_smart_money_inflow_usd) : null,
         priceAtSignal: parseFloat(row.price_at_signal),
-        priceDisplacementFromVwapPercent: parseFloat(row.price_displacement_from_vwap_percent),
-        currentRegime: row.market_regime as any,
+        priceDisplacementFromVwapPercent: row.price_displacement_from_vwap_percent !== null ? parseFloat(row.price_displacement_from_vwap_percent) : null,
+        currentRegime: row.market_regime || null,
         features: {
-          traderSkillScore: row.trader_skill_score ?? null,
-          copyabilityScore: row.copyability_score ?? null,
-          independentConsensusScore: row.independent_consensus_score ?? null,
-          convictionSurpriseScore: row.conviction_surprise_score ?? null,
-          smartMoneyAccelerationScore: row.smart_money_acceleration_score ?? null,
-          entryQualityScore: row.entry_quality_score ?? null,
-          liquidityTokenQualityScore: row.liquidity_token_quality_score ?? null,
-          regimeFitScore: row.regime_fit_score ?? null,
-          emergingTraderScore: row.emerging_trader_score ?? null,
+          traderSkillScore: evidences['traderSkillScore'] || null,
+          copyabilityScore: evidences['copyabilityScore'] || null,
+          independentConsensusScore: evidences['independentConsensusScore'] || null,
+          convictionSurpriseScore: evidences['convictionSurpriseScore'] || null,
+          smartMoneyAccelerationScore: evidences['smartMoneyAccelerationScore'] || null,
+          entryQualityScore: evidences['entryQualityScore'] || null,
+          liquidityTokenQualityScore: evidences['liquidityTokenQualityScore'] || null,
+          regimeFitScore: evidences['regimeFitScore'] || null,
+          emergingTraderScore: evidences['emergingTraderScore'] || null,
           penalties: row.penalties_detail || {
             crowdingPenalty: 0,
             relatedWalletsPenalty: 0,
@@ -473,26 +541,26 @@ export class PostgresPersistenceStore implements StorageAdapter {
           totalPenalties: row.total_penalties || 0
         },
         participantWallets: [],
-        historicalExpectancy: {
-          similarEventsCount: 0,
-          winRatePercent: 0,
-          averageWinnerPercent: 0,
-          averageLoserPercent: 0,
-          medianReturnPercent: 0,
-          grossEvPercent: 0,
-          executionCostPercent: 0,
-          netEvPercent: 0,
-          maxFavorableExcursionPercent: parseFloat(row.max_favorable_excursion_percent) || 0,
-          maxAdverseExcursionPercent: parseFloat(row.max_adverse_excursion_percent) || 0,
-          return5mPercent: parseFloat(row.return_5m_percent) || 0,
-          return15mPercent: parseFloat(row.return_15m_percent) || 0,
-          return1hPercent: parseFloat(row.return_1h_percent) || 0,
-          return4hPercent: parseFloat(row.return_4h_percent) || 0,
-          return24hPercent: parseFloat(row.return_24h_percent) || 0
-        }
+        historicalExpectancy: historicalExpectancy as any,
+        executionSimulation: undefined as any,
+        outcomes: row.return_24h_percent !== null ? {
+          return5mPercent: row.return_5m_percent,
+          return15mPercent: row.return_15m_percent,
+          return1hPercent: row.return_1h_percent,
+          return4hPercent: row.return_4h_percent,
+          return24hPercent: row.return_24h_percent,
+          return3dPercent: row.return_3d_percent,
+          return7dPercent: row.return_7d_percent,
+          maxFavorableExcursionPercent: row.max_favorable_excursion_percent,
+          maxAdverseExcursionPercent: row.max_adverse_excursion_percent,
+        } : undefined
       };
     });
   }
+
+
+
+
 
   public async saveRiskEvent(event: {
     portfolioId?: string;
@@ -836,6 +904,84 @@ export class PostgresPersistenceStore implements StorageAdapter {
     }
   }
 
+
+  public async saveStrategyDecision(record: any): Promise<void> {
+    if (!this.pool) return;
+    const query = `
+      INSERT INTO strategy_signal_decisions (
+        id, strategy_key, strategy_name, token_address, token_symbol,
+        allocated_position_usd, signal_id, decision, reason, evaluated_at,
+        alpha_score, feature_snapshot
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (strategy_key, signal_id) DO UPDATE SET
+        decision = EXCLUDED.decision,
+        reason = EXCLUDED.reason,
+        evaluated_at = EXCLUDED.evaluated_at,
+        alpha_score = EXCLUDED.alpha_score,
+        feature_snapshot = EXCLUDED.feature_snapshot;
+    `;
+    await this.pool.query(query, [
+      record.id, record.strategyKey, record.strategyName, record.tokenAddress, record.tokenSymbol,
+      record.allocatedPositionUsd, record.signalId, record.decision, record.reason, record.evaluatedAt,
+      record.alphaScore, JSON.stringify(record.featureSnapshot || {})
+    ]);
+  }
+
+  public async getStrategyDecisions(limit: number = 100): Promise<any[]> {
+    if (!this.pool) return [];
+    const res = await this.pool.query('SELECT * FROM strategy_signal_decisions ORDER BY evaluated_at DESC LIMIT $1', [limit]);
+    return res.rows.map(r => ({
+      id: r.id, strategyKey: r.strategy_key, strategyName: r.strategy_name, tokenAddress: r.token_address,
+      tokenSymbol: r.token_symbol, allocatedPositionUsd: r.allocated_position_usd !== null ? parseFloat(r.allocated_position_usd) : null,
+      signalId: r.signal_id, decision: r.decision, reason: r.reason, evaluatedAt: new Date(r.evaluated_at).toISOString(),
+      alphaScore: r.alpha_score !== null ? parseFloat(r.alpha_score) : null, featureSnapshot: r.feature_snapshot
+    }));
+  }
+
+  public async getStrategyDecisionsForStrategy(strategyKey: string, limit: number = 100): Promise<any[]> {
+    if (!this.pool) return [];
+    const res = await this.pool.query('SELECT * FROM strategy_signal_decisions WHERE strategy_key = $1 ORDER BY evaluated_at DESC LIMIT $2', [strategyKey, limit]);
+    return res.rows.map(r => ({
+      id: r.id, strategyKey: r.strategy_key, strategyName: r.strategy_name, tokenAddress: r.token_address,
+      tokenSymbol: r.token_symbol, allocatedPositionUsd: r.allocated_position_usd !== null ? parseFloat(r.allocated_position_usd) : null,
+      signalId: r.signal_id, decision: r.decision, reason: r.reason, evaluatedAt: new Date(r.evaluated_at).toISOString(),
+      alphaScore: r.alpha_score !== null ? parseFloat(r.alpha_score) : null, featureSnapshot: r.feature_snapshot
+    }));
+  }
+
+  public async getStrategyDecisionsForSignal(signalId: string): Promise<any[]> {
+    if (!this.pool) return [];
+    const res = await this.pool.query('SELECT * FROM strategy_signal_decisions WHERE signal_id = $1 ORDER BY evaluated_at DESC', [signalId]);
+    return res.rows.map(r => ({
+      id: r.id, strategyKey: r.strategy_key, strategyName: r.strategy_name, tokenAddress: r.token_address,
+      tokenSymbol: r.token_symbol, allocatedPositionUsd: r.allocated_position_usd !== null ? parseFloat(r.allocated_position_usd) : null,
+      signalId: r.signal_id, decision: r.decision, reason: r.reason, evaluatedAt: new Date(r.evaluated_at).toISOString(),
+      alphaScore: r.alpha_score !== null ? parseFloat(r.alpha_score) : null, featureSnapshot: r.feature_snapshot
+    }));
+  }
+
+  public async saveStrategyEquitySnapshot(snapshot: any): Promise<void> {
+    if (!this.pool) return;
+    const query = `
+      INSERT INTO strategy_equity_snapshots (
+        id, strategy_key, timestamp, equity_usd, drawdown_percent
+      ) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (id) DO NOTHING;
+    `;
+    await this.pool.query(query, [
+      snapshot.id, snapshot.strategyKey, snapshot.timestamp, snapshot.equityUsd, snapshot.drawdownPercent
+    ]);
+  }
+
+  public async getStrategyEquitySnapshots(strategyKey: string, limit: number = 1000): Promise<any[]> {
+    if (!this.pool) return [];
+    const res = await this.pool.query('SELECT * FROM strategy_equity_snapshots WHERE strategy_key = $1 ORDER BY timestamp ASC LIMIT $2', [strategyKey, limit]);
+    return res.rows.map(r => ({
+      id: r.id, strategyKey: r.strategy_key, timestamp: new Date(r.timestamp).toISOString(),
+      equityUsd: parseFloat(r.equity_usd), drawdownPercent: parseFloat(r.drawdown_percent)
+    }));
+  }
+
   public async saveProviderHealth(record: {
     providerName: string;
     status: string;
@@ -856,131 +1002,59 @@ export class PostgresPersistenceStore implements StorageAdapter {
  * Strictly reserved for APP_MODE=demo and isolated unit tests.
  */
 export class MemoryPersistenceStore implements StorageAdapter {
-  private portfolios: Map<string, PaperPortfolio> = new Map();
-  private positions: Map<string, PaperPosition[]> = new Map();
-  private trades: Map<string, PaperTradeRecord[]> = new Map();
   private signals: Map<string, AlphaSignal> = new Map();
-  private wallets: Map<string, WalletProfile> = new Map();
-  private transactions: ParsedTransactionRecord[] = [];
-  private storedTokens: Map<string, TokenMarketData> = new Map();
   private riskEvents: any[] = [];
   private providerHealth: any[] = [];
-  private isInitialized = false;
+  private wallets: Map<string, any> = new Map();
+  private transactions: any[] = [];
+  private storedTokens: Map<string, any> = new Map();
+  private trades: Map<string, any[]> = new Map();
+  private positions: Map<string, any[]> = new Map();
+  private portfolios: Map<string, any> = new Map();
 
-  public async init(): Promise<void> {
-    this.isInitialized = true;
-  }
 
-  public async checkHealth(): Promise<{ isConnected: boolean; message?: string; latencyMs?: number }> {
-    return {
-      isConnected: true,
-      latencyMs: 0,
-      message: 'In-memory persistence active (Demo / Test mode).'
-    };
-  }
+  public async init(): Promise<void> {}
+  public async checkHealth(): Promise<{ isConnected: boolean; message?: string; latencyMs?: number; }> { return { isConnected: true, latencyMs: 0 }; }
+  public async getPortfolio(id: string): Promise<any> { return this.portfolios.get(id) || null; }
 
-  public async savePortfolio(portfolio: PaperPortfolio): Promise<void> {
-    this.portfolios.set(portfolio.id, { ...portfolio });
-  }
-
-  public async getPortfolio(id: string): Promise<PaperPortfolio | null> {
-    return this.portfolios.get(id) ? { ...this.portfolios.get(id)! } : null;
-  }
-
-  public async savePosition(position: PaperPosition): Promise<void> {
+  public async savePortfolio(portfolio: any): Promise<void> { this.portfolios.set(portfolio.id, { ...portfolio }); }
+  public async getPortfolios(): Promise<any[]> { return Array.from(this.portfolios.values()); }
+  public async savePosition(position: any): Promise<void> {
     const list = this.positions.get(position.portfolioId) || [];
     const idx = list.findIndex(p => p.id === position.id);
-    if (idx >= 0) {
-      list[idx] = { ...position };
-    } else {
-      list.unshift({ ...position });
-    }
+    if (idx >= 0) list[idx] = { ...position }; else list.push({ ...position });
     this.positions.set(position.portfolioId, list);
   }
-
   public async removePosition(positionId: string): Promise<void> {
     for (const [portId, list] of this.positions.entries()) {
-      const filtered = list.filter(p => p.id !== positionId);
-      this.positions.set(portId, filtered);
+      this.positions.set(portId, list.filter(p => p.id !== positionId));
     }
   }
-
-  public async getOpenPositions(portfolioId: string): Promise<PaperPosition[]> {
-    return (this.positions.get(portfolioId) || []).map(p => ({ ...p }));
-  }
-
-  public async saveTrade(trade: PaperTradeRecord): Promise<void> {
+  public async getOpenPositions(portfolioId: string): Promise<any[]> { return (this.positions.get(portfolioId) || []).map(p => ({ ...p })); }
+  public async saveTrade(trade: any): Promise<void> {
     const list = this.trades.get(trade.portfolioId) || [];
     list.unshift({ ...trade });
     this.trades.set(trade.portfolioId, list);
   }
-
-  public async getTrades(portfolioId: string): Promise<PaperTradeRecord[]> {
-    return (this.trades.get(portfolioId) || []).map(t => ({ ...t }));
-  }
-
-  public async saveSignal(signal: AlphaSignal): Promise<void> {
-    this.signals.set(signal.id, { ...signal });
-  }
-
-  public async getSignals(): Promise<AlphaSignal[]> {
-    return Array.from(this.signals.values()).map(s => ({ ...s }));
-  }
-
-  public async saveRiskEvent(event: any): Promise<void> {
-    this.riskEvents.unshift({ ...event, timestamp: new Date().toISOString() });
-  }
-
-  public async saveWallet(wallet: WalletProfile): Promise<void> {
-    this.wallets.set(wallet.address, { ...wallet });
-  }
-
-  public async getWallets(): Promise<WalletProfile[]> {
-    return Array.from(this.wallets.values()).map(w => ({ ...w }));
-  }
-
-  public async saveTransaction(tx: ParsedTransactionRecord): Promise<void> {
-    this.transactions.unshift({ ...tx });
-    if (this.transactions.length > 500) this.transactions.pop();
-  }
-
-  public async saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void> {
-    for (const tx of txs) {
-      await this.saveTransaction(tx);
-    }
-  }
-
-  public async getTransactions(limit: number = 100): Promise<ParsedTransactionRecord[]> {
-    return this.transactions.slice(0, limit);
-  }
-
-  public async getTransactionsForToken(
-    tokenAddress: string,
-    fromTimestamp?: string,
-    toTimestamp?: string
-  ): Promise<ParsedTransactionRecord[]> {
-    return this.transactions.filter(tx => {
-      const matchToken = (tx.tokenInAddress && tx.tokenInAddress.toLowerCase() === tokenAddress.toLowerCase()) ||
-                         (tx.tokenOutAddress && tx.tokenOutAddress.toLowerCase() === tokenAddress.toLowerCase());
-      if (!matchToken) return false;
-      const txTime = new Date(tx.timestamp).getTime();
-      if (fromTimestamp && txTime < new Date(fromTimestamp).getTime()) return false;
-      if (toTimestamp && txTime > new Date(toTimestamp).getTime()) return false;
-      return true;
-    });
-  }
-
-  public async saveToken(token: TokenMarketData): Promise<void> {
-    this.storedTokens.set(token.address, { ...token });
-  }
-
-  public async getTokens(): Promise<TokenMarketData[]> {
-    return Array.from(this.storedTokens.values());
-  }
-
-  public async saveProviderHealth(record: any): Promise<void> {
-    this.providerHealth.unshift({ ...record, checked_at: new Date().toISOString() });
-  }
+  public async getTrades(portfolioId: string): Promise<any[]> { return (this.trades.get(portfolioId) || []).map(t => ({ ...t })); }
+  public async saveSignal(signal: any): Promise<void> { this.signals.set(signal.id, { ...signal }); }
+  public async getSignals(limit?: number): Promise<any[]> { return Array.from(this.signals.values()); }
+  public async getTransactions(limit: number = 100): Promise<any[]> { return this.transactions.slice(0, limit); }
+  public async getTransactionsForToken(tokenAddress: string, fromTimestamp?: string, toTimestamp?: string): Promise<any[]> { return []; }
+  public async saveToken(token: any): Promise<void> { this.storedTokens.set(token.address, { ...token }); }
+  public async getTokens(): Promise<any[]> { return Array.from(this.storedTokens.values()); }
+  public async saveProviderHealth(record: any): Promise<void> { this.providerHealth.unshift({ ...record, checked_at: new Date().toISOString() }); }
+  public async saveRiskEvent(event: any): Promise<void> {}
+  public async saveStrategyDecision(record: any): Promise<void> {}
+  public async getStrategyDecisions(limit?: number): Promise<any[]> { return []; }
+  public async getStrategyDecisionsForStrategy(strategyKey: string, limit?: number): Promise<any[]> { return []; }
+  public async getStrategyDecisionsForSignal(signalId: string): Promise<any[]> { return []; }
+  public async saveStrategyEquitySnapshot(snapshot: any): Promise<void> {}
+  public async getStrategyEquitySnapshots(strategyKey: string, limit?: number): Promise<any[]> { return []; }
+  public async saveWallet(wallet: any): Promise<void> {}
+  public async getWallets(limit?: number): Promise<any[]> { return []; }
+  public async saveTransaction(tx: any): Promise<void> {}
+  public async saveTransactionsBatch(txs: any[]): Promise<void> {}
 }
 
 /**
