@@ -16,6 +16,20 @@ export class MarkToMarketWorker {
     remainingPositions: PaperPosition[];
     updatedPortfolio: PaperPortfolio;
   }> {
+    // If there are zero open positions, perform no Birdeye/Jupiter pricing request
+    if (!openPositions || openPositions.length === 0) {
+      return {
+        closedTrades: [],
+        remainingPositions: [],
+        updatedPortfolio: {
+          ...portfolio,
+          positionsValueUsd: 0,
+          unrealizedPnlUsd: 0,
+          totalEquityUsd: portfolio.cashUsd
+        }
+      };
+    }
+
     const closedTrades: PaperTradeRecord[] = [];
     const remainingPositions: PaperPosition[] = [];
     let updatedCash = portfolio.cashUsd;

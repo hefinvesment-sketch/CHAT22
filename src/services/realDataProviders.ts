@@ -123,6 +123,26 @@ export class RealDataProviders {
     return 6;
   }
 
+  // Helper to ensure secret keys are NEVER leaked in messages or logs
+  public static sanitizeMessage(msg?: string): string {
+    if (!msg) return '';
+    let sanitized = String(msg);
+    const secrets = [
+      process.env.HELIUS_API_KEY,
+      process.env.BIRDEYE_API_KEY,
+      process.env.JUPITER_API_KEY,
+      process.env.DATABASE_URL,
+      process.env.REDIS_URL,
+      process.env.SOLANA_RPC_URL,
+      process.env.GEMINI_API_KEY
+    ].filter((s): s is string => Boolean(s && s.length > 3));
+
+    for (const sec of secrets) {
+      sanitized = sanitized.split(sec).join('[REDACTED]');
+    }
+    return sanitized.replace(/api-key=[^&\s]+/gi, 'api-key=[REDACTED]');
+  }
+
   // 1. Helius Health & Fetcher
   public static async checkHeliusHealth(): Promise<ProviderHealthRecord> {
     const apiKey = process.env.HELIUS_API_KEY;
@@ -142,9 +162,9 @@ export class RealDataProviders {
 
     try {
       const start = Date.now();
-      // Probe Helius RPC health
-      const rpcEndpoint = process.env.SOLANA_RPC_URL || `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
-      const res = await fetch(rpcEndpoint, {
+      // Probe Helius-owned endpoint directly with HELIUS_API_KEY
+      const heliusEndpoint = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
+      const res = await fetch(heliusEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getHealth' })
@@ -183,7 +203,7 @@ export class RealDataProviders {
         providerName: 'Helius',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: err.message,
+        message: this.sanitizeMessage(err?.message || 'Helius connection unreachable'),
         activeMode: mode
       };
       this.healthMap['Helius'] = record;
@@ -244,7 +264,7 @@ export class RealDataProviders {
         providerName: 'Birdeye',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: err.message,
+        message: this.sanitizeMessage(err?.message),
         activeMode: mode
       };
       this.healthMap['Birdeye'] = record;
@@ -297,7 +317,7 @@ export class RealDataProviders {
           status: 'DEGRADED',
           lastChecked: new Date().toISOString(),
           latencyMs,
-          message: `RPC getHealth returned: ${JSON.stringify(json)}`,
+          message: `RPC getHealth returned: ${this.sanitizeMessage(JSON.stringify(json))}`,
           activeMode: mode
         };
         this.healthMap['Solana RPC'] = record;
@@ -308,7 +328,7 @@ export class RealDataProviders {
         providerName: 'Solana RPC',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: err.message,
+        message: this.sanitizeMessage(err?.message),
         activeMode: mode
       };
       this.healthMap['Solana RPC'] = record;
@@ -407,7 +427,7 @@ export class RealDataProviders {
         providerName: 'Jupiter',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: err.message,
+        message: this.sanitizeMessage(err?.message),
         activeMode: mode
       };
       this.healthMap['Jupiter'] = record;

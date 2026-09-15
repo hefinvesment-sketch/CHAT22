@@ -27,12 +27,16 @@ const CORE_MINTS = new Set([
   '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'  // WETH
 ]);
 
+export const DEFAULT_HELIUS_POLL_INTERVAL_MS = 600000; // 10 minutes
+
 export class HeliusIngestionWorker {
   private isRunning: boolean = false;
   private intervalTimer: NodeJS.Timeout | null = null;
   private processedSignatures: Set<string> = new Set();
   private programIndex: number = 0;
   private isPolling: boolean = false;
+
+  public pollIntervalMs: number = DEFAULT_HELIUS_POLL_INTERVAL_MS;
 
   // Stats
   public transactionsIngested: number = 0;
@@ -54,10 +58,11 @@ export class HeliusIngestionWorker {
     }) => void
   ) {}
 
-  public start(intervalMs: number = 4500): void {
+  public start(intervalMs: number = DEFAULT_HELIUS_POLL_INTERVAL_MS): void {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log('[HeliusIngestionWorker]: Starting automated real-time on-chain ingestion worker.');
+    this.pollIntervalMs = intervalMs;
+    console.log(`[HeliusIngestionWorker]: Starting automated on-chain ingestion worker (interval: ${intervalMs}ms).`);
 
     // Run first batch immediately
     this.pollBatch().catch(err => {
@@ -83,6 +88,7 @@ export class HeliusIngestionWorker {
   public getStatus() {
     return {
       running: this.isRunning,
+      pollIntervalMs: this.pollIntervalMs,
       transactionsIngested: this.transactionsIngested,
       walletsDiscovered: this.walletsDiscovered,
       signalsGenerated: this.signalsGenerated,

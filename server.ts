@@ -68,7 +68,38 @@ app.use(express.json());
 const storage: StorageAdapter = createPersistenceStore(APP_MODE);
 
 // State variables
-let currentPortfolio: PaperPortfolio;
+let currentPortfolio: PaperPortfolio = {
+  id: 'live-paper-portfolio',
+  name: 'HEF AlphaGraph Live Paper Account',
+  description: 'Persistent live-market paper execution portfolio with real Solana quotes',
+  strategyKey: 'HEF_INSTITUTIONAL',
+  startingCapitalUsd: 5000.00,
+  initialCashUsd: 5000.00,
+  cashUsd: 5000.00,
+  positionsValueUsd: 0.00,
+  totalEquityUsd: 5000.00,
+  totalReturnPercent: 0.00,
+  realizedPnlUsd: 0.00,
+  unrealizedPnlUsd: 0.00,
+  todayPnlUsd: 0.00,
+  todayReturnPercent: 0.00,
+  weeklyPnlUsd: 0.00,
+  monthlyPnlUsd: 0.00,
+  maxDrawdownPercent: 0.00,
+  winRatePercent: 0.00,
+  profitFactor: 1.00,
+  expectedValuePerTradeUsd: 0.00,
+  sharpeRatio: 0.00,
+  averageSlippageBps: 35,
+  averageDetectionLatencyMs: 650,
+  copyEfficiencyPercent: 100,
+  totalTradesCount: 0,
+  openPositionsCount: 0,
+  totalFeesPaidUsd: 0.00,
+  equityHistory: [
+    { timestamp: new Date().toISOString().slice(0, 10), equity: 5000.00, drawdownPercent: 0, solBenchmark: 100, btcBenchmark: 100, ethBenchmark: 100 }
+  ]
+};
 let openPositions: PaperPosition[] = [];
 let tradeHistory: PaperTradeRecord[] = [];
 let signals: AlphaSignal[] = [];
@@ -81,6 +112,55 @@ let systemReady = false;
 let missingComponents: string[] = [];
 let heliusWorker: HeliusIngestionWorker | null = null;
 let markToMarketTimer: NodeJS.Timeout | null = null;
+
+// Configurable intervals (default 10 minutes = 600000ms)
+export const HELIUS_POLL_INTERVAL_MS =
+  Number(process.env.HELIUS_POLL_INTERVAL_MS) || 600000;
+export const PROVIDER_HEALTH_TTL_MS =
+  Number(process.env.PROVIDER_HEALTH_TTL_MS) || 600000;
+
+export let cachedProviderHealth: ProviderHealthRecord[] = [];
+export let lastProviderHealthCheck = 0;
+export let providerHealthRefreshPromise: Promise<ProviderHealthRecord[]> | null = null;
+
+export async function getCachedProviderHealth(
+  force = false
+): Promise<ProviderHealthRecord[]> {
+  const now = Date.now();
+  const cacheFresh =
+    cachedProviderHealth.length > 0 &&
+    now - lastProviderHealthCheck < PROVIDER_HEALTH_TTL_MS;
+  if (!force && cacheFresh) {
+    return cachedProviderHealth;
+  }
+  if (providerHealthRefreshPromise) {
+    return providerHealthRefreshPromise;
+  }
+  providerHealthRefreshPromise = (async () => {
+    try {
+      const records =
+        await RealDataProviders.getAllProviderHealth(storage);
+      cachedProviderHealth = records;
+      lastProviderHealthCheck = Date.now();
+      return records;
+    } catch (err: any) {
+      console.warn('[ProviderHealthCache]: Refresh failed safely:', RealDataProviders.sanitizeMessage(err?.message || 'Unknown error'));
+      if (cachedProviderHealth.length > 0) {
+        return cachedProviderHealth;
+      }
+      return [];
+    } finally {
+      providerHealthRefreshPromise = null;
+    }
+  })();
+  return providerHealthRefreshPromise;
+}
+
+export function resetProviderHealthCacheForTesting() {
+  cachedProviderHealth = [];
+  lastProviderHealthCheck = 0;
+  providerHealthRefreshPromise = null;
+}
 
 // Initialize application state according to strict APP_MODE separation
 async function initializeState() {
@@ -155,8 +235,9 @@ async function initializeState() {
 
     // 1. Verify provider health before setting systemReady
     console.log('[System]: Verifying provider health before READY...');
-    const providerRecords = await RealDataProviders.getAllProviderHealth(storage);
-    const requiredProviders = ['PostgreSQL', 'Redis', 'Helius', 'Birdeye', 'Solana RPC', 'Jupiter'];
+    const providerRecords = await getCachedProviderHealth(true);
+    // Redis is optional for readiness; critical providers: PostgreSQL, Helius, Birdeye, Solana RPC, Jupiter
+    const requiredProviders = ['PostgreSQL', 'Helius', 'Birdeye', 'Solana RPC', 'Jupiter'];
     const unreadyProviders = providerRecords.filter(p => requiredProviders.includes(p.providerName) && p.status !== 'CONNECTED');
 
     if (unreadyProviders.length > 0) {
@@ -164,7 +245,7 @@ async function initializeState() {
       systemReady = false;
     } else {
       systemReady = true;
-      console.log('[System]: All providers verified healthy (PostgreSQL, Redis, Helius, Birdeye, Solana RPC, Jupiter). System is READY.');
+      console.log('[System]: All critical providers verified healthy (PostgreSQL, Helius, Birdeye, Solana RPC, Jupiter). System is READY.');
     }
 
     liveEvents = [
@@ -173,7 +254,7 @@ async function initializeState() {
         timestamp: new Date().toLocaleTimeString(),
         category: 'SIGNAL_GENERATED',
         headline: 'Live Paper Trading Session Initialized',
-        detail: `Starting capital: $5,000.00. System status: ${systemReady ? 'READY (All providers connected)' : 'INITIALIZING'}.`,
+        detail: `Starting capital: $5,000.00. System status: ${systemReady ? 'READY (All critical providers connected)' : 'INITIALIZING'}.`,
         badgeType: systemReady ? 'success' : 'warning'
       }
     ];
@@ -214,8 +295,8 @@ async function initializeState() {
           }
         }
       );
-      heliusWorker.start(4500);
-      console.log('[System]: Helius Ingestion Worker automatically started for live_paper.');
+      heliusWorker.start(HELIUS_POLL_INTERVAL_MS);
+      console.log(`[System]: Helius Ingestion Worker automatically started for live_paper with interval ${HELIUS_POLL_INTERVAL_MS}ms.`);
     }
 
     // 3. Continuous mark-to-market worker
@@ -319,8 +400,15 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 app.get('/api/system/status', async (req: Request, res: Response) => {
-  const providers = await RealDataProviders.getAllProviderHealth(storage);
-  const isHealthy = providers.every(p => p.status === 'CONNECTED' || p.status === 'DEMO_ONLY');
+  const providers = await getCachedProviderHealth();
+  // Redis is optional for readiness; critical providers must be CONNECTED or DEMO_ONLY
+  const isHealthy = providers
+    .filter(p => p.providerName !== 'Redis')
+    .every(p => p.status === 'CONNECTED' || p.status === 'DEMO_ONLY');
+
+  const now = Date.now();
+  const cacheAgeSeconds = lastProviderHealthCheck > 0 ? Math.max(0, Math.round((now - lastProviderHealthCheck) / 1000)) : 0;
+  const nextRefreshAt = lastProviderHealthCheck > 0 ? new Date(lastProviderHealthCheck + PROVIDER_HEALTH_TTL_MS).toISOString() : new Date().toISOString();
 
   res.json({
     appMode: APP_MODE,
@@ -329,15 +417,30 @@ app.get('/api/system/status', async (req: Request, res: Response) => {
     status: (APP_MODE === 'demo' || (systemReady && isHealthy)) ? 'READY' : 'NOT_READY',
     missingComponents,
     providers,
+    lastProviderHealthCheck: lastProviderHealthCheck > 0 ? new Date(lastProviderHealthCheck).toISOString() : null,
+    nextProviderHealthRefreshAt: nextRefreshAt,
+    healthCacheAgeSeconds: cacheAgeSeconds,
+    heliusPollIntervalMs: HELIUS_POLL_INTERVAL_MS,
+    providerHealthTtlMs: PROVIDER_HEALTH_TTL_MS,
     timestamp: new Date().toISOString()
   });
 });
 
 app.get('/api/providers/health', async (req: Request, res: Response) => {
-  const records = await RealDataProviders.getAllProviderHealth(storage);
+  const forceRefresh = req.query.refresh === 'true';
+  const records = await getCachedProviderHealth(forceRefresh);
+  const now = Date.now();
+  const cacheAgeSeconds = lastProviderHealthCheck > 0 ? Math.max(0, Math.round((now - lastProviderHealthCheck) / 1000)) : 0;
+  const nextRefreshAt = lastProviderHealthCheck > 0 ? new Date(lastProviderHealthCheck + PROVIDER_HEALTH_TTL_MS).toISOString() : new Date().toISOString();
+
   res.json({
     appMode: APP_MODE,
     providers: records,
+    lastProviderHealthCheck: lastProviderHealthCheck > 0 ? new Date(lastProviderHealthCheck).toISOString() : null,
+    nextProviderHealthRefreshAt: nextRefreshAt,
+    healthCacheAgeSeconds: cacheAgeSeconds,
+    heliusPollIntervalMs: HELIUS_POLL_INTERVAL_MS,
+    providerHealthTtlMs: PROVIDER_HEALTH_TTL_MS,
     timestamp: new Date().toISOString()
   });
 });
@@ -365,14 +468,23 @@ app.get('/api/state', async (req: Request, res: Response) => {
     tradeHistory
   );
 
-  const providers = await RealDataProviders.getAllProviderHealth(storage);
+  const providers = await getCachedProviderHealth();
   const ingestionStats = heliusWorker ? heliusWorker.getStatus() : null;
+
+  const now = Date.now();
+  const cacheAgeSeconds = lastProviderHealthCheck > 0 ? Math.max(0, Math.round((now - lastProviderHealthCheck) / 1000)) : 0;
+  const nextRefreshAt = lastProviderHealthCheck > 0 ? new Date(lastProviderHealthCheck + PROVIDER_HEALTH_TTL_MS).toISOString() : new Date().toISOString();
 
   res.json({
     appMode: APP_MODE,
     isDemo: APP_MODE === 'demo',
     systemReady,
     providers,
+    lastProviderHealthCheck: lastProviderHealthCheck > 0 ? new Date(lastProviderHealthCheck).toISOString() : null,
+    nextProviderHealthRefreshAt: nextRefreshAt,
+    healthCacheAgeSeconds: cacheAgeSeconds,
+    heliusPollIntervalMs: HELIUS_POLL_INTERVAL_MS,
+    providerHealthTtlMs: PROVIDER_HEALTH_TTL_MS,
     ingestionStats,
     portfolio: currentPortfolio,
     openPositions,
@@ -680,6 +792,16 @@ app.post('/api/close-position', handleCloseTradeRequest);
 
 // Mark-to-Market trigger for open positions
 app.post('/api/paper/mtm', async (req: Request, res: Response) => {
+  // If zero open positions, perform no pricing requests
+  if (!openPositions || openPositions.length === 0) {
+    return res.json({
+      success: true,
+      closedTradesCount: 0,
+      openPositionsCount: 0,
+      portfolio: currentPortfolio
+    });
+  }
+
   const mtm = await MarkToMarketWorker.monitorAndEvaluatePositions(
     currentPortfolio,
     openPositions,
@@ -698,8 +820,74 @@ app.post('/api/paper/mtm', async (req: Request, res: Response) => {
   });
 });
 
-// Reset Demo Portfolio to Exactly $5,000 Base
+// Reset Portfolio (handles live_paper and demo modes)
+app.post('/api/reset-portfolio', async (req: Request, res: Response) => {
+  if (APP_MODE === 'live_paper') {
+    currentPortfolio = {
+      id: 'live-paper-portfolio',
+      name: 'HEF AlphaGraph Live Paper Account',
+      description: 'Persistent live-market paper execution portfolio with real Solana quotes',
+      strategyKey: 'HEF_INSTITUTIONAL',
+      startingCapitalUsd: 5000.00,
+      initialCashUsd: 5000.00,
+      cashUsd: 5000.00,
+      positionsValueUsd: 0.00,
+      totalEquityUsd: 5000.00,
+      totalReturnPercent: 0.00,
+      realizedPnlUsd: 0.00,
+      unrealizedPnlUsd: 0.00,
+      todayPnlUsd: 0.00,
+      todayReturnPercent: 0.00,
+      weeklyPnlUsd: 0.00,
+      monthlyPnlUsd: 0.00,
+      maxDrawdownPercent: 0.00,
+      winRatePercent: 0.00,
+      profitFactor: 1.00,
+      expectedValuePerTradeUsd: 0.00,
+      sharpeRatio: 0.00,
+      averageSlippageBps: 35,
+      averageDetectionLatencyMs: 650,
+      copyEfficiencyPercent: 100,
+      totalTradesCount: 0,
+      openPositionsCount: 0,
+      totalFeesPaidUsd: 0.00,
+      equityHistory: [
+        { timestamp: new Date().toISOString().slice(0, 10), equity: 5000.00, drawdownPercent: 0, solBenchmark: 100, btcBenchmark: 100, ethBenchmark: 100 }
+      ]
+    };
+    openPositions = [];
+    tradeHistory = [];
+    try {
+      await storage.savePortfolio(currentPortfolio);
+    } catch (err: any) {
+      console.warn('[Reset Portfolio] Storage error:', err.message);
+    }
+    return res.json({ success: true, portfolio: currentPortfolio, mode: 'live_paper' });
+  } else {
+    currentPortfolio = {
+      ...MOCK_PORTFOLIO,
+      startingCapitalUsd: 5000.00,
+      initialCashUsd: 5000.00,
+      cashUsd: 5000.00,
+      positionsValueUsd: 0.00,
+      totalEquityUsd: 5000.00,
+      realizedPnlUsd: 0.00,
+      unrealizedPnlUsd: 0.00,
+      totalReturnPercent: 0.00,
+      openPositionsCount: 0,
+      totalTradesCount: 0
+    };
+    openPositions = [];
+    tradeHistory = [];
+    return res.json({ success: true, portfolio: currentPortfolio, mode: 'demo' });
+  }
+});
+
+// Reset Demo Portfolio to Exactly $5,000 Base (Protected in live_paper)
 app.post('/api/reset-demo', (req: Request, res: Response) => {
+  if (APP_MODE !== 'demo') {
+    return res.status(403).json({ error: 'Reset demo is only permitted in demo mode' });
+  }
   currentPortfolio = {
     ...MOCK_PORTFOLIO,
     startingCapitalUsd: 5000.00,
@@ -813,4 +1001,9 @@ async function startServer() {
   });
 }
 
-startServer();
+const isTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST) || (typeof process.argv[1] === 'string' && process.argv[1].includes('vitest'));
+if (!isTest) {
+  startServer();
+}
+
+export { app, startServer, initializeState, storage };
