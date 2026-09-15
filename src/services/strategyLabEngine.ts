@@ -474,10 +474,34 @@ export class StrategyLabEngine {
       const decisionId = `dec-${def.key}-${signal.id}-${Date.now()}`;
 
       // If strategy is paused
+      if (signal.dataStatus === 'INSUFFICIENT_DATA') {
+        const record: StrategyDecisionRecord = {
+          id: decisionId,
+          strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
+          signalId: signal.id,
+          decision: 'REJECTED',
+          reason: 'Signal contains insufficient data or blocked synthetic features.',
+          evaluatedAt: new Date().toISOString(),
+          alphaScore: signal.alphaScore,
+          featureSnapshot: { ...signal.features }
+        };
+        this.recordDecision(def.key, record);
+        records.push(record);
+        continue;
+      }
+
       if (portfolio.status === 'PAUSED') {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: 'Strategy is currently paused by operator.',
@@ -495,6 +519,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'WATCHED',
           reason: `Insufficient baseline evidence: ${evidenceCheck.reason}`,
@@ -514,6 +542,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: `Alpha score (${signal.alphaScore}) is below strategy threshold (${elig.minAlphaScore}).`,
@@ -526,13 +558,17 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (signal.features.traderSkillScore < elig.minTraderSkill) {
+      if ((signal.features.traderSkillScore?.value || 0) < elig.minTraderSkill) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Trader skill (${signal.features.traderSkillScore}) below required (${elig.minTraderSkill}).`,
+          reason: `Trader skill (${signal.features.traderSkillScore?.value || 0}) below required (${elig.minTraderSkill}).`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -542,13 +578,17 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (signal.features.copyabilityScore < elig.minCopyability) {
+      if ((signal.features.copyabilityScore?.value || 0) < elig.minCopyability) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Copyability (${signal.features.copyabilityScore}) below required (${elig.minCopyability}).`,
+          reason: `Copyability (${signal.features.copyabilityScore?.value || 0}) below required (${elig.minCopyability}).`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -562,6 +602,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: `Independent consensus count (${signal.independentEliteCount}) below required (${elig.minIndependentWallets}).`,
@@ -578,6 +622,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: `Token liquidity ($${signal.liquidityUsd || 0}) below required ($${elig.minLiquidityUsd}).`,
@@ -594,6 +642,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: `Price displacement from VWAP (${signal.priceDisplacementFromVwapPercent}%) exceeds maximum (${elig.maxPriceDisplacementPercent}%).`,
@@ -610,6 +662,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: `Current market regime '${signal.currentRegime}' does not match allowed regimes: [${elig.allowedRegimes.join(', ')}].`,
@@ -626,6 +682,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
           reason: 'Strategy requires >= 3 independent wallet consensus clusters.',
@@ -638,13 +698,17 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (elig.requiresConvictionSurprise && signal.features.convictionSurpriseScore < 75) {
+      if (elig.requiresConvictionSurprise && (signal.features.convictionSurpriseScore?.value || 0) < 75) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Conviction surprise score (${signal.features.convictionSurpriseScore}) below required 75.`,
+          reason: `Conviction surprise score (${signal.features.convictionSurpriseScore?.value || 0}) below required 75.`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -654,13 +718,17 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (elig.requiresFlowAcceleration && signal.features.smartMoneyAccelerationScore < 75) {
+      if (elig.requiresFlowAcceleration && (signal.features.smartMoneyAccelerationScore?.value || 0) < 75) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Flow acceleration score (${signal.features.smartMoneyAccelerationScore}) below required 75.`,
+          reason: `Flow acceleration score (${signal.features.smartMoneyAccelerationScore?.value || 0}) below required 75.`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -670,13 +738,17 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (elig.requiresEmergingTrader && signal.features.emergingTraderScore < 70) {
+      if (elig.requiresEmergingTrader && (signal.features.emergingTraderScore?.value || 0) < 70) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Emerging trader score (${signal.features.emergingTraderScore}) below required 70.`,
+          reason: `Emerging trader score (${signal.features.emergingTraderScore?.value || 0}) below required 70.`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -692,6 +764,10 @@ export class StrategyLabEngine {
           const record: StrategyDecisionRecord = {
             id: decisionId,
             strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
             signalId: signal.id,
             decision: 'REJECTED',
             reason: `Historical MAE (${mae}%) exceeds low-drawdown threshold (${elig.maxHistoricalAdverseExcursionPercent}%).`,
@@ -710,6 +786,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'WATCHED',
           reason: `Strategy portfolio open positions (${openPositions.length}) reached max capacity (${def.positionSizingRules.maxPositions}).`,
@@ -727,6 +807,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'WATCHED',
           reason: `Duplicate token exposure: Strategy already holds position in ${signal.tokenSymbol}.`,
@@ -745,6 +829,10 @@ export class StrategyLabEngine {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'WATCHED',
           reason: `Insufficient cash ($${portfolio.cashUsd.toFixed(2)}) for required allocation ($${targetAllocationUsd.toFixed(2)}).`,
@@ -779,6 +867,10 @@ export class StrategyLabEngine {
           const record: StrategyDecisionRecord = {
             id: decisionId,
             strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
             signalId: signal.id,
             decision: 'WATCHED',
             reason: `Executable Jupiter quote failed: ${err.message}`,
@@ -840,6 +932,10 @@ export class StrategyLabEngine {
       const tradedRecord: StrategyDecisionRecord = {
         id: decisionId,
         strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
         signalId: signal.id,
         decision: 'TRADED',
         reason: `Eligible signal executed. Opened $${targetAllocationUsd.toFixed(2)} position at $${fillPrice.toFixed(4)}.`,

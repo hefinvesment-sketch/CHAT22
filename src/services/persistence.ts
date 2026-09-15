@@ -438,6 +438,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
         tokenAddress: row.token_address,
         timestamp: new Date(row.timestamp).toISOString(),
         alphaScore: row.alpha_score,
+        dataStatus: row.data_status || "COMPLETE",
         signalState: row.signal_state as any,
         decision: row.decision_status as any,
         rejectionReason: row.rejection_reason || (hasStoredFeatures ? undefined : 'LEGACY_INCOMPLETE'),

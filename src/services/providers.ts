@@ -97,7 +97,7 @@ export class RealisticSolanaExecutionSimulator implements ExecutionSimulator {
     const detectionPrice = Number((sourcePrice * (1 + latencyImpactPercent)).toFixed(6));
 
     // Dynamic pool slippage calculation based on token liquidity
-    const poolLiquidity = signal.features.liquidityTokenQualityScore * 100000;
+    const poolLiquidity = (signal.features.liquidityTokenQualityScore?.value || 0) * 100000;
     const estimatedSlippagePercent = Number((0.0035 + (Math.random() * 0.0025)).toFixed(4));
     
     const dexFeePercent = 0.0025; // 25 bps Jupiter / Raydium routing fee

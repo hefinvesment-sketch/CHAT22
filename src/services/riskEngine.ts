@@ -110,7 +110,7 @@ export class RiskEngine {
         reason: `Actual token liquidity ($${(signal.liquidityUsd / 1e6).toFixed(2)}M) is below required minimum ($${(minLiquidityUsd / 1e6).toFixed(2)}M).`
       };
     }
-    if (signal.features.liquidityTokenQualityScore < 60) {
+    if ((signal.features.liquidityTokenQualityScore?.value || 0) < 60) {
       return {
         passed: false,
         code: 'MIN_LIQUIDITY',
@@ -259,7 +259,7 @@ export class RiskEngine {
     }
 
     // 18. Minimum Copyability Score
-    if (signal.features.copyabilityScore < 60) {
+    if ((signal.features.copyabilityScore?.value || 0) < 60) {
       return {
         passed: false,
         code: 'MIN_COPYABILITY',

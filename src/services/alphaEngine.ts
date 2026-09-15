@@ -5,7 +5,8 @@ import {
   SignalState, 
   SystemSettings, 
   TraderGenome, 
-  WalletProfile 
+  WalletProfile,
+  FeatureEvidence
 } from '../types';
 
 /**
@@ -13,6 +14,28 @@ import {
  */
 
 export class AlphaEngine {
+
+  /**
+   * Helper to safely extract feature values.
+   * In LIVE_PAPER mode, throws if the feature is synthetic.
+   */
+  public static extractFeatureValue(
+    feature: FeatureEvidence | null, 
+    appMode: string, 
+    defaultValue: number | null = null
+  ): number | null {
+    if (!feature) return defaultValue;
+    if (appMode === 'live_paper') {
+      const forbiddenStatuses = [
+        'DEMO', 'MOCK', 'FIXTURE', 'HARDCODED', 'SYNTHETIC_ESTIMATE', 'INSUFFICIENT_DATA'
+      ];
+      if (forbiddenStatuses.includes(feature.status)) {
+        throw new Error(`SYNTHETIC_DATA_BLOCKED_IN_LIVE_MODE: feature has forbidden provenance ${feature.status}`);
+      }
+    }
+    return feature.value !== null ? feature.value : defaultValue;
+  }
+
   /**
    * Calculate Wallet Quality Score (0-100)
    * Formula:
@@ -190,10 +213,12 @@ export class AlphaEngine {
    */
   public static computeAlphaScore(
     features: AlphaSignalFeatureBreakdown,
+    appMode: string,
     settings?: SystemSettings
   ): {
-    alphaScore: number;
+    alphaScore: number | null;
     signalState: SignalState;
+    dataStatus: 'COMPLETE' | 'PARTIAL' | 'INSUFFICIENT_DATA';
   } {
     const w = settings?.alphaWeights || {
       traderSkill: 0.18,
@@ -207,47 +232,83 @@ export class AlphaEngine {
       emergingTrader: 0.05
     };
 
-    const rawScore = 
-      (features.traderSkillScore * w.traderSkill) +
-      (features.copyabilityScore * w.copyability) +
-      (features.independentConsensusScore * w.independentConsensus) +
-      (features.convictionSurpriseScore * w.convictionSurprise) +
-      (features.smartMoneyAccelerationScore * w.smartMoneyAcceleration) +
-      (features.entryQualityScore * w.entryQuality) +
-      (features.liquidityTokenQualityScore * w.liquidityTokenQuality) +
-      (features.regimeFitScore * w.marketRegimeFit) +
-      (features.emergingTraderScore * w.emergingTrader);
+    try {
+      const traderSkillScore = this.extractFeatureValue(features.traderSkillScore, appMode);
+      const copyabilityScore = this.extractFeatureValue(features.copyabilityScore, appMode);
+      const independentConsensusScore = this.extractFeatureValue(features.independentConsensusScore, appMode);
+      const convictionSurpriseScore = this.extractFeatureValue(features.convictionSurpriseScore, appMode);
+      const smartMoneyAccelerationScore = this.extractFeatureValue(features.smartMoneyAccelerationScore, appMode);
+      const entryQualityScore = this.extractFeatureValue(features.entryQualityScore, appMode);
+      const liquidityTokenQualityScore = this.extractFeatureValue(features.liquidityTokenQualityScore, appMode);
+      const regimeFitScore = this.extractFeatureValue(features.regimeFitScore, appMode);
+      const emergingTraderScore = this.extractFeatureValue(features.emergingTraderScore, appMode);
 
-    const totalPenalties = 
-      features.penalties.crowdingPenalty +
-      features.penalties.relatedWalletsPenalty +
-      features.penalties.poorLiquidityPenalty +
-      features.penalties.pricePumpedPenalty +
-      features.penalties.suspiciousTokenStructurePenalty +
-      features.penalties.highSlippagePenalty +
-      features.penalties.traderDeteriorationPenalty +
-      features.penalties.insufficientSamplePenalty +
-      features.penalties.profitConcentrationPenalty;
+      const allMandatoryFeatures = [
+        traderSkillScore, copyabilityScore, independentConsensusScore,
+        convictionSurpriseScore, smartMoneyAccelerationScore, entryQualityScore,
+        liquidityTokenQualityScore, regimeFitScore, emergingTraderScore
+      ];
 
-    const finalAlpha = Math.max(0, Math.min(100, Math.round(rawScore - totalPenalties)));
+      if (allMandatoryFeatures.some(f => f === null)) {
+        return {
+          alphaScore: null,
+          signalState: 'INSUFFICIENT DATA' as any, // Mapped to WATCH or similar upstream if necessary, but 'INSUFFICIENT DATA' conveys intent
+          dataStatus: 'INSUFFICIENT_DATA'
+        };
+      }
 
-    // Signal States
-    let signalState: SignalState = 'IGNORE';
-    if (finalAlpha >= 92) {
-      signalState = 'HIGH-CONVICTION PAPER TRADE';
-    } else if (finalAlpha >= 85) {
-      signalState = 'PAPER TRADE ELIGIBLE';
-    } else if (finalAlpha >= 75) {
-      signalState = 'STRONG RESEARCH SIGNAL';
-    } else if (finalAlpha >= 60) {
-      signalState = 'WATCH';
-    } else {
-      signalState = 'IGNORE';
+      const rawScore = 
+        (traderSkillScore! * w.traderSkill) +
+        (copyabilityScore! * w.copyability) +
+        (independentConsensusScore! * w.independentConsensus) +
+        (convictionSurpriseScore! * w.convictionSurprise) +
+        (smartMoneyAccelerationScore! * w.smartMoneyAcceleration) +
+        (entryQualityScore! * w.entryQuality) +
+        (liquidityTokenQualityScore! * w.liquidityTokenQuality) +
+        (regimeFitScore! * w.marketRegimeFit) +
+        (emergingTraderScore! * w.emergingTrader);
+
+      const totalPenalties = 
+        features.penalties.crowdingPenalty +
+        features.penalties.relatedWalletsPenalty +
+        features.penalties.poorLiquidityPenalty +
+        features.penalties.pricePumpedPenalty +
+        features.penalties.suspiciousTokenStructurePenalty +
+        features.penalties.highSlippagePenalty +
+        features.penalties.traderDeteriorationPenalty +
+        features.penalties.insufficientSamplePenalty +
+        features.penalties.profitConcentrationPenalty;
+
+      const finalAlpha = Math.max(0, Math.min(100, Math.round(rawScore - totalPenalties)));
+
+      // Signal States
+      let signalState: SignalState = 'IGNORE';
+      if (finalAlpha >= 92) {
+        signalState = 'HIGH-CONVICTION PAPER TRADE';
+      } else if (finalAlpha >= 85) {
+        signalState = 'PAPER TRADE ELIGIBLE';
+      } else if (finalAlpha >= 75) {
+        signalState = 'STRONG RESEARCH SIGNAL';
+      } else if (finalAlpha >= 60) {
+        signalState = 'WATCH';
+      } else {
+        signalState = 'IGNORE';
+      }
+
+      return {
+        alphaScore: finalAlpha,
+        signalState,
+        dataStatus: 'COMPLETE'
+      };
+    } catch (err: any) {
+      if (err.message.includes('SYNTHETIC_DATA_BLOCKED_IN_LIVE_MODE')) {
+        return {
+          alphaScore: null,
+          signalState: 'WATCH',
+          dataStatus: 'INSUFFICIENT_DATA'
+        };
+      }
+      throw err;
     }
-
-    return {
-      alphaScore: finalAlpha,
-      signalState
-    };
   }
 }

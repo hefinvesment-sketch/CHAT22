@@ -6,7 +6,7 @@ import { RealisticSolanaExecutionSimulator } from './providers';
 import { RealDataProviders } from './realDataProviders';
 import { RedisClientService } from './redisClient';
 import { 
-  AlphaSignal, 
+  AlphaSignal, AlphaSignalFeatureBreakdown, FeatureEvidence, 
   TokenMarketData, 
   WalletProfile, 
   SystemSettings, 
@@ -285,26 +285,26 @@ export class HeliusIngestionWorker {
           symbol: candidateSymbol || 'SOL-TOKEN',
           name: `${candidateSymbol} Solana Asset`,
           address: candidateMint,
-          decimals: 6,
-          priceUsd: realPrice,
-          priceChange1h: 1.45,
-          priceChange24h: 6.8,
-          volume24hUsd: Math.max(tx.usdValue * 150, 250000),
-          liquidityUsd: Math.max(tx.usdValue * 80, 850000),
-          marketCapUsd: Math.max(tx.usdValue * 600, 4500000),
-          fdvUsd: Math.max(tx.usdValue * 700, 5000000),
-          holderCount: 1850,
-          tokenAgeDays: 48,
-          top10HoldersPercent: 24.5,
-          top20HoldersPercent: 34.0,
-          devHoldingsPercent: 1.8,
-          hasFreezeAuthority: false,
-          hasMintAuthority: false,
-          liquidityLockedPercent: 98.5,
-          isHoneypotSafe: true,
-          riskScore: 18,
-          smartMoneyVwap: Number((realPrice * 0.985).toFixed(6)),
-          netFlow24hUsd: Math.round(tx.usdValue * 3.5)
+          decimals: 'TOKEN_DECIMALS_UNAVAILABLE',
+          priceUsd: realPrice > 0 ? realPrice : null,
+          priceChange1h: null,
+          priceChange24h: null,
+          volume24hUsd: null,
+          liquidityUsd: null,
+          marketCapUsd: null,
+          fdvUsd: null,
+          holderCount: null,
+          tokenAgeDays: null,
+          top10HoldersPercent: null,
+          top20HoldersPercent: null,
+          devHoldingsPercent: null,
+          hasFreezeAuthority: null,
+          hasMintAuthority: null,
+          liquidityLockedPercent: null,
+          isHoneypotSafe: null,
+          riskScore: null,
+          smartMoneyVwap: null,
+          netFlow24hUsd: null
         };
 
         await this.storage.saveToken(tokenData);
@@ -312,16 +312,26 @@ export class HeliusIngestionWorker {
 
         // Generate Alpha Signal if positive flow and significant swap
         if (tx.tradeDirection === 'BUY' || tx.usdValue >= 500) {
-          const features = {
-            traderSkillScore: 88,
-            copyabilityScore: 84,
-            independentConsensusScore: 85,
-            convictionSurpriseScore: 80,
-            smartMoneyAccelerationScore: 82,
-            entryQualityScore: 86,
-            liquidityTokenQualityScore: 82,
-            regimeFitScore: 80,
-            emergingTraderScore: 78,
+          const createMockEvidence = (val: number | null): FeatureEvidence | null => {
+            if (val === null) return null;
+            return {
+              value: val,
+              status: ('live_paper') === 'live_paper' ? 'INSUFFICIENT_DATA' : 'MOCK',
+              source: 'helius_ingestion_stub',
+              timestamp: new Date().toISOString()
+            };
+          };
+
+          const features: AlphaSignalFeatureBreakdown = {
+            traderSkillScore: createMockEvidence(null),
+            copyabilityScore: createMockEvidence(null),
+            independentConsensusScore: createMockEvidence(null),
+            convictionSurpriseScore: createMockEvidence(null),
+            smartMoneyAccelerationScore: createMockEvidence(null),
+            entryQualityScore: createMockEvidence(null),
+            liquidityTokenQualityScore: createMockEvidence(null),
+            regimeFitScore: createMockEvidence(null),
+            emergingTraderScore: createMockEvidence(null),
             penalties: {
               crowdingPenalty: 0,
               relatedWalletsPenalty: 0,
@@ -336,45 +346,12 @@ export class HeliusIngestionWorker {
             totalPenalties: 0
           };
 
-          const { alphaScore, signalState } = AlphaEngine.computeAlphaScore(features, this.systemSettings);
-          const simulatedFill = this.executionSimulator.simulateExecution(
-            {
-              id: `sig-sim-${candidateMint.slice(0, 6)}`,
-              tokenSymbol: tokenData.symbol,
-              tokenAddress: candidateMint,
-              timestamp: new Date().toISOString(),
-              alphaScore,
-              signalState,
-              decision: 'ELIGIBLE',
-              liquidityUsd: tokenData.liquidityUsd,
-              independentEliteCount: 3,
-              totalSmartMoneyInflowUsd: tx.usdValue * 2,
-              priceAtSignal: realPrice,
-              priceDisplacementFromVwapPercent: 1.5,
-              currentRegime: 'Trending Up',
-              features,
-              participantWallets: [tx.walletAddress],
-              historicalExpectancy: {
-                similarEventsCount: 24,
-                winRatePercent: 74,
-                averageWinnerPercent: 14.2,
-                averageLoserPercent: -4.1,
-                medianReturnPercent: 8.8,
-                grossEvPercent: 9.4,
-                executionCostPercent: 1.1,
-                netEvPercent: 8.3,
-                maxFavorableExcursionPercent: 22.0,
-                maxAdverseExcursionPercent: -3.2,
-                return5mPercent: 1.5,
-                return15mPercent: 3.2,
-                return1hPercent: 5.8,
-                return4hPercent: 9.4,
-                return24hPercent: 14.1
-              }
-            } as any,
-            5000.00,
-            1.8
-          );
+          const { alphaScore, signalState, dataStatus } = AlphaEngine.computeAlphaScore(features, ('live_paper'), this.systemSettings);
+          
+          let simulatedFill = undefined;
+          if (dataStatus === 'COMPLETE') {
+             // In real live mode this would only run if evidence is complete.
+          }
 
           const signal: AlphaSignal = {
             id: `sig-live-${candidateMint.slice(0, 6)}-${Date.now()}`,
@@ -382,38 +359,39 @@ export class HeliusIngestionWorker {
             tokenAddress: candidateMint,
             timestamp: new Date().toISOString(),
             alphaScore,
+            dataStatus,
             signalState,
             decision: 'WATCHED',
-            liquidityUsd: tokenData.liquidityUsd,
-            independentEliteCount: Math.min(6, Math.max(2, Math.floor(discoveredWallets.length + 1))),
-            totalSmartMoneyInflowUsd: Math.round(tx.usdValue * 2.8),
+            liquidityUsd: tokenData.liquidityUsd || undefined,
+            independentEliteCount: 0,
+            totalSmartMoneyInflowUsd: tx.usdValue,
             priceAtSignal: realPrice,
-            priceDisplacementFromVwapPercent: 1.5,
-            currentRegime: 'Trending Up',
+            priceDisplacementFromVwapPercent: 0,
+            currentRegime: 'Unknown' as any,
             features,
             participantWallets: [{
               address: tx.walletAddress,
-              qualityScore: 88,
-              convictionMultiplier: 1.2,
+              qualityScore: 0,
+              convictionMultiplier: 1.0,
               tradeUsd: tx.usdValue,
               isIndependent: true
             }],
             historicalExpectancy: {
-              similarEventsCount: 24,
-              winRatePercent: 74,
-              averageWinnerPercent: 14.2,
-              averageLoserPercent: -4.1,
-              medianReturnPercent: 8.8,
-              grossEvPercent: 9.4,
-              executionCostPercent: 1.1,
-              netEvPercent: 8.3,
-              maxFavorableExcursionPercent: 22.0,
-              maxAdverseExcursionPercent: -3.2,
-              return5mPercent: 1.5,
-              return15mPercent: 3.2,
-              return1hPercent: 5.8,
-              return4hPercent: 9.4,
-              return24hPercent: 14.1
+              similarEventsCount: 0,
+              winRatePercent: 0,
+              averageWinnerPercent: 0,
+              averageLoserPercent: 0,
+              medianReturnPercent: 0,
+              grossEvPercent: 0,
+              executionCostPercent: 0,
+              netEvPercent: 0,
+              maxFavorableExcursionPercent: 0,
+              maxAdverseExcursionPercent: 0,
+              return5mPercent: 0,
+              return15mPercent: 0,
+              return1hPercent: 0,
+              return4hPercent: 0,
+              return24hPercent: 0
             },
             executionSimulation: simulatedFill
           };

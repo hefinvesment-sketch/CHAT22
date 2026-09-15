@@ -161,26 +161,26 @@ export interface TokenMarketData {
   symbol: string;
   name: string;
   address: string;
-  decimals: number;
-  priceUsd: number;
-  priceChange1h: number;
-  priceChange24h: number;
-  volume24hUsd: number;
-  liquidityUsd: number;
-  marketCapUsd: number;
-  fdvUsd: number;
-  holderCount: number;
-  tokenAgeDays: number;
-  top10HoldersPercent: number;
-  top20HoldersPercent: number;
-  devHoldingsPercent: number;
-  hasFreezeAuthority: boolean;
-  hasMintAuthority: boolean;
-  liquidityLockedPercent: number;
-  isHoneypotSafe: boolean;
-  riskScore: number; // 0-100 (lower is safer)
-  smartMoneyVwap: number;
-  netFlow24hUsd: number;
+  decimals: number | 'TOKEN_DECIMALS_UNAVAILABLE';
+  priceUsd: number | null;
+  priceChange1h: number | null;
+  priceChange24h: number | null;
+  volume24hUsd: number | null;
+  liquidityUsd: number | null;
+  marketCapUsd: number | null;
+  fdvUsd: number | null;
+  holderCount: number | null;
+  tokenAgeDays: number | null;
+  top10HoldersPercent: number | null;
+  top20HoldersPercent: number | null;
+  devHoldingsPercent: number | null;
+  hasFreezeAuthority: boolean | null;
+  hasMintAuthority: boolean | null;
+  liquidityLockedPercent: number | null;
+  isHoneypotSafe: boolean | null;
+  riskScore: number | null; // 0-100 (lower is safer)
+  smartMoneyVwap: number | null;
+  netFlow24hUsd: number | null;
 }
 
 export interface SmartMoneyFlowTimeframe {
@@ -199,15 +199,15 @@ export interface SmartMoneyFlowTimeframe {
 }
 
 export interface AlphaSignalFeatureBreakdown {
-  traderSkillScore: number; // 18%
-  copyabilityScore: number; // 15%
-  independentConsensusScore: number; // 15%
-  convictionSurpriseScore: number; // 12%
-  smartMoneyAccelerationScore: number; // 10%
-  entryQualityScore: number; // 10%
-  liquidityTokenQualityScore: number; // 8%
-  regimeFitScore: number; // 7%
-  emergingTraderScore: number; // 5%
+  traderSkillScore: FeatureEvidence | null;
+  copyabilityScore: FeatureEvidence | null;
+  independentConsensusScore: FeatureEvidence | null;
+  convictionSurpriseScore: FeatureEvidence | null;
+  smartMoneyAccelerationScore: FeatureEvidence | null;
+  entryQualityScore: FeatureEvidence | null;
+  liquidityTokenQualityScore: FeatureEvidence | null;
+  regimeFitScore: FeatureEvidence | null;
+  emergingTraderScore: FeatureEvidence | null;
   penalties: {
     crowdingPenalty: number;
     relatedWalletsPenalty: number;
@@ -227,7 +227,8 @@ export interface AlphaSignal {
   tokenSymbol: string;
   tokenAddress: string;
   timestamp: string;
-  alphaScore: number; // 0-100
+  alphaScore: number | null; // 0-100 or null if insufficient data
+  dataStatus: 'COMPLETE' | 'PARTIAL' | 'INSUFFICIENT_DATA';
   signalState: SignalState;
   decision: DecisionStatus;
   rejectionReason?: string;
@@ -544,12 +545,16 @@ export interface StrategyDefinition {
 export interface StrategyDecisionRecord {
   id: string;
   strategyKey: string;
+  strategyName: string;
   signalId: string;
+  tokenAddress: string;
+  tokenSymbol: string;
   decision: 'ELIGIBLE' | 'WATCHED' | 'REJECTED' | 'TRADED';
   reason: string;
   evaluatedAt: string;
-  alphaScore: number;
-  featureSnapshot: Record<string, any>;
+  alphaScore: number | null;
+  allocatedPositionUsd: number | null;
+  featureSnapshot: Record<string, unknown>;
 }
 
 export interface StrategyPortfolio extends PaperPortfolio {
@@ -571,18 +576,18 @@ export type FeatureProvenanceStatus =
   | 'DERIVED'
   | 'MODELED_EXECUTION'
   | 'INSUFFICIENT_DATA'
-  | 'MOCK'
   | 'DEMO'
-  | 'HARDCODED'
+  | 'MOCK'
   | 'FIXTURE'
+  | 'HARDCODED'
   | 'SYNTHETIC_ESTIMATE';
 
-export interface FeatureProvenanceRecord {
-  featureName: string;
-  value: any;
+export interface FeatureEvidence<T = number> {
+  value: T | null;
+  status: FeatureProvenanceStatus;
   source: string;
   timestamp: string;
   sampleSize?: number;
-  status: FeatureProvenanceStatus;
 }
+
 
