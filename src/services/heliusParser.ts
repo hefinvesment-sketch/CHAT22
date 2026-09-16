@@ -50,22 +50,23 @@ export class HeliusTransactionParser {
    * Parse a raw Helius transaction (enhanced webhook or RPC response)
    */
   public static parseTransaction(tx: unknown, targetWallet?: string): ParsedTransactionRecord {
-    const signature = tx.signature || `sig-${tx.slot || Date.now()}`;
-    const slot = tx.slot || 0;
-    const timestamp = tx.timestamp 
-      ? new Date(tx.timestamp * 1000).toISOString() 
+    const rawTx = (tx || {}) as any;
+    const signature = rawTx.signature || `sig-${rawTx.slot || Date.now()}`;
+    const slot = rawTx.slot || 0;
+    const timestamp = rawTx.timestamp 
+      ? new Date(rawTx.timestamp * 1000).toISOString() 
       : new Date().toISOString();
-    const feeSol = (tx.fee || 5000) / 1e9;
-    const feeUsd = feeSol * (tx.solPriceUsd || 145);
+    const feeSol = (rawTx.fee || 5000) / 1e9;
+    const feeUsd = feeSol * (rawTx.solPriceUsd || 145);
 
     // Identify primary wallet
-    const walletAddress = targetWallet || tx.feePayer || tx.accountData?.[0]?.account || 'UNKNOWN_WALLET';
-    const type = (tx.type || '').toUpperCase();
-    const source = tx.source || 'UNKNOWN_DEX';
+    const walletAddress = targetWallet || rawTx.feePayer || rawTx.accountData?.[0]?.account || 'UNKNOWN_WALLET';
+    const type = (rawTx.type || '').toUpperCase();
+    const source = rawTx.source || 'UNKNOWN_DEX';
 
     // 1. Swaps
-    if (type === 'SWAP' || (tx.events && tx.events.swap)) {
-      const swapEvent = tx.events?.swap || {};
+    if (type === 'SWAP' || (rawTx.events && rawTx.events.swap)) {
+      const swapEvent = rawTx.events?.swap || {};
       const nativeInput = swapEvent.nativeInput;
       const nativeOutput = swapEvent.nativeOutput;
       const tokenInputs = swapEvent.tokenInputs || [];
@@ -95,8 +96,8 @@ export class HeliusTransactionParser {
       }
 
       // Fallback: check token transfers array if swap event missing details
-      if ((!tokenInAddress || !tokenOutAddress) && Array.isArray(tx.tokenTransfers)) {
-        for (const tt of tx.tokenTransfers) {
+      if ((!tokenInAddress || !tokenOutAddress) && Array.isArray(rawTx.tokenTransfers)) {
+        for (const tt of rawTx.tokenTransfers) {
           if (tt.fromUserAccount?.toLowerCase() === walletAddress.toLowerCase()) {
             tokenInAddress = tt.mint;
             tokenInAmount = Number(tt.tokenAmount || 0);
@@ -186,9 +187,9 @@ export class HeliusTransactionParser {
     }
 
     // 2. Transfers & Airdrops
-    if (type === 'TRANSFER' || (tx.tokenTransfers && tx.tokenTransfers.length > 0)) {
-      const transfer = tx.tokenTransfers?.[0];
-      const isAirdrop = (tx.description || '').toLowerCase().includes('airdrop') || 
+    if (type === 'TRANSFER' || (rawTx.tokenTransfers && rawTx.tokenTransfers.length > 0)) {
+      const transfer = rawTx.tokenTransfers?.[0];
+      const isAirdrop = (rawTx.description || '').toLowerCase().includes('airdrop') || 
                         (transfer && transfer.fromUserAccount === 'AirdropDistributor');
 
       return {
@@ -238,9 +239,10 @@ export class HeliusTransactionParser {
    * Map standard Solana JSON-parsed RPC getTransaction into Helius transaction format
    */
   public static mapSolanaRpcTransaction(rpcTx: unknown, signature: string): unknown {
-    const message = rpcTx.transaction?.message;
-    const meta = rpcTx.meta;
-    const feePayer = message?.accountKeys?.find((k: unknown) => k.signer)?.pubkey || 'UNKNOWN_WALLET';
+    const rawRpc = (rpcTx || {}) as any;
+    const message = rawRpc.transaction?.message;
+    const meta = rawRpc.meta;
+    const feePayer = message?.accountKeys?.find((k: any) => k.signer)?.pubkey || 'UNKNOWN_WALLET';
     
     // Calculate token balance diffs to detect swaps/transfers
     const preBalances = meta?.preTokenBalances || [];
@@ -250,7 +252,7 @@ export class HeliusTransactionParser {
     const tokenOutputs: unknown[] = [];
     
     for (const post of postBalances) {
-      const pre = preBalances.find((p: unknown) => p.accountIndex === post.accountIndex && p.mint === post.mint);
+      const pre = preBalances.find((p: any) => p.accountIndex === post.accountIndex && p.mint === post.mint);
       const preAmount = pre ? Number(pre.uiTokenAmount?.uiAmount || 0) : 0;
       const postAmount = Number(post.uiTokenAmount?.uiAmount || 0);
       const diff = postAmount - preAmount;
@@ -275,8 +277,8 @@ export class HeliusTransactionParser {
     
     return {
       signature,
-      slot: rpcTx.slot,
-      timestamp: rpcTx.blockTime,
+      slot: rawRpc.slot,
+      timestamp: rawRpc.blockTime,
       fee: meta?.fee || 5000,
       feePayer,
       type: tokenInputs.length > 0 && tokenOutputs.length > 0 ? 'SWAP' : (tokenOutputs.length > 0 || tokenInputs.length > 0 ? 'TRANSFER' : 'UNKNOWN'),

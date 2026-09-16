@@ -28,7 +28,7 @@ export const StrategyLabView: React.FC<StrategyLabViewProps> = ({ bots = [] }) =
   // Auto-select first bot when bots load
   useEffect(() => {
     if (safeBots.length > 0 && (!selectedBotId || !safeBots.some(b => b.id === selectedBotId))) {
-      setSelectedBotId(safeBots[0].id);
+      setSelectedBotId(safeBots[0]?.id ?? null);
     }
   }, [safeBots, selectedBotId]);
 
@@ -255,7 +255,7 @@ export const StrategyLabView: React.FC<StrategyLabViewProps> = ({ bots = [] }) =
                       <td className="py-2.5 text-zinc-200 font-semibold">{(bot.profitFactor ?? 0).toFixed(2)}x</td>
                       <td className="py-2.5 text-zinc-300">{(bot.maxDrawdownPercent ?? 0).toFixed(1)}%</td>
                       <td className="py-2.5 text-cyan-400 font-semibold">{(bot.sharpeRatio ?? 0).toFixed(2)}</td>
-                      <td className="py-2.5 text-zinc-400">{bot.totalTradesCount ?? (bot as unknown).tradeCount ?? 0}</td>
+                      <td className="py-2.5 text-zinc-400">{bot.totalTradesCount ?? (bot as any).tradeCount ?? 0}</td>
                       <td className="py-2.5 text-right">
                         <button 
                           onClick={(e) => {

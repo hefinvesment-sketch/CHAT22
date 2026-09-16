@@ -49,7 +49,31 @@ export const TraderGenomeView: React.FC<TraderGenomeViewProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {wallets.map(w => {
-          const g = w.genome;
+          const g = w.genome || {
+            overallSkill: w.qualityScore ?? 50,
+            momentumSkill: 50,
+            swingTradingSkill: 50,
+            earlyEntrySkill: 50,
+            largeCapSkill: 50,
+            midCapSkill: 50,
+            smallCapSkill: 50,
+            solEcosystemSkill: 50,
+            memecoinSkill: 50,
+            riskOnSkill: 50,
+            riskOffSkill: 50,
+            highVolatilitySkill: 50,
+            lowVolatilitySkill: 50,
+            trendFollowingSkill: 50,
+            meanReversionSkill: 50,
+            exitSkill: 50,
+            entrySkill: 50,
+            drawdownControl: 50,
+            diversificationQuality: 50,
+            medianPositionPercent: 5,
+            medianHoldingTimeHours: 12,
+            bestMarketRegime: 'TRENDING_UP',
+            preferredMarketCap: 'MID_CAP'
+          };
           return (
             <div 
               key={w.address} 

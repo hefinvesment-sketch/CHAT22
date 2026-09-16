@@ -65,7 +65,7 @@ export const AiAnalystView: React.FC<AiAnalystViewProps> = ({
           portfolioContext: {
             equity: portfolio.totalEquityUsd,
             returnPct: portfolio.totalReturnPercent,
-            openPositionsCount: portfolio.tradeCount,
+            openPositionsCount: portfolio.openPositionsCount ?? 0,
             copyEfficiency: portfolio.copyEfficiencyPercent,
             winRate: portfolio.winRatePercent
           },

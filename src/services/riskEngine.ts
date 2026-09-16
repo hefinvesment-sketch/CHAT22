@@ -139,11 +139,14 @@ export class RiskEngine {
         reason: `Actual token liquidity ($${(signal.liquidityUsd / 1e6).toFixed(2)}M) is below required minimum ($${(minLiquidityUsd / 1e6).toFixed(2)}M).`
       };
     }
-    if ((signal.features.liquidityTokenQualityScore?.value || 0) < 60) {
+    const liqScore = typeof (signal.features.liquidityTokenQualityScore as unknown) === 'number'
+      ? (signal.features.liquidityTokenQualityScore as unknown as number)
+      : (signal.features.liquidityTokenQualityScore?.value ?? 0);
+    if (liqScore < 60) {
       return {
         passed: false,
         code: 'MIN_LIQUIDITY',
-        reason: `Token pool liquidity score (${signal.features.liquidityTokenQualityScore}) fails safety threshold (minimum equivalent $${(minLiquidityUsd / 1e6).toFixed(1)}M).`
+        reason: `Token pool liquidity score (${liqScore}) fails safety threshold (minimum equivalent $${(minLiquidityUsd / 1e6).toFixed(1)}M).`
       };
     }
 
@@ -160,7 +163,7 @@ export class RiskEngine {
 
     // 7. Max Price Displacement from Smart-Money VWAP
     const maxDisplacement = 2.5; // 2.5% max displacement
-    if (signal.priceDisplacementFromVwapPercent > maxDisplacement) {
+    if (signal.priceDisplacementFromVwapPercent !== null && signal.priceDisplacementFromVwapPercent > maxDisplacement) {
       return {
         passed: false,
         code: 'MAX_PRICE_DISPLACEMENT',
@@ -250,7 +253,7 @@ export class RiskEngine {
 
     // 15. Maximum Portfolio Drawdown Limit
     const maxDrawdownLimit = settings.maxPortfolioDrawdownPercent ?? 15.0;
-    if (portfolio.maxDrawdownPercent >= maxDrawdownLimit) {
+    if (portfolio.maxDrawdownPercent !== null && portfolio.maxDrawdownPercent >= maxDrawdownLimit) {
       return {
         passed: false,
         code: 'DRAWDOWN_LIMIT',
@@ -260,7 +263,7 @@ export class RiskEngine {
 
     // 16. Minimum Wallet Quality Check
     if (signal.participantWallets && signal.participantWallets.length > 0) {
-      const avgQuality = signal.participantWallets.reduce((s, w) => s + w.qualityScore, 0) / signal.participantWallets.length;
+      const avgQuality = signal.participantWallets.reduce((s, w) => s + (w.qualityScore ?? 0), 0) / signal.participantWallets.length;
       if (avgQuality < 60) {
         return {
           passed: false,
@@ -279,20 +282,23 @@ export class RiskEngine {
       };
     }
 
-    if (signal.independentEliteCount < 2) {
+    if ((signal.independentEliteCount ?? 0) < 2) {
       return {
         passed: false,
         code: 'INSUFFICIENT_INDEPENDENT_CONSENSUS',
-        reason: `Only ${signal.independentEliteCount} independent wallet confirmed the move (minimum 2 required).`
+        reason: `Only ${signal.independentEliteCount ?? 0} independent wallet confirmed the move (minimum 2 required).`
       };
     }
 
     // 18. Minimum Copyability Score
-    if ((signal.features.copyabilityScore?.value || 0) < 60) {
+    const copyScore = typeof (signal.features.copyabilityScore as unknown) === 'number'
+      ? (signal.features.copyabilityScore as unknown as number)
+      : (signal.features.copyabilityScore?.value ?? 0);
+    if (copyScore < 60) {
       return {
         passed: false,
         code: 'MIN_COPYABILITY',
-        reason: `Participating traders copyability score (${signal.features.copyabilityScore}) indicates severe execution drag in live DEX conditions.`
+        reason: `Participating traders copyability score (${copyScore}) indicates severe execution drag in live DEX conditions.`
       };
     }
 

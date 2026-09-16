@@ -23,9 +23,9 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitAny": false,
-    "strictNullChecks": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false
   }

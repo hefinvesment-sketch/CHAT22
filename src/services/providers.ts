@@ -111,9 +111,9 @@ export class RealisticSolanaExecutionSimulator implements ExecutionSimulator {
 
     // Dynamic sizing based on alpha score conviction
     let effectiveRiskPercent = riskPercent;
-    if (signal.alphaScore >= 92) {
+    if (signal.alphaScore !== null && signal.alphaScore >= 92) {
       effectiveRiskPercent = Math.min(riskPercent * 2.0, 3.0); // max 3%
-    } else if (signal.alphaScore >= 85) {
+    } else if (signal.alphaScore !== null && signal.alphaScore >= 85) {
       effectiveRiskPercent = Math.min(riskPercent * 1.5, 2.0); // 2%
     }
 
@@ -123,15 +123,20 @@ export class RealisticSolanaExecutionSimulator implements ExecutionSimulator {
     let canExecute = true;
     let rejectionReason: string | undefined = undefined;
 
-    if (signal.features.penalties.poorLiquidityPenalty > 15) {
+    if (signal.alphaScore === null) {
+      canExecute = false;
+      rejectionReason = 'Alpha score is null (insufficient data)';
+    } else if (signal.features.penalties.poorLiquidityPenalty > 15) {
       canExecute = false;
       rejectionReason = 'Liquidity below $2.0M institutional safety threshold';
-    } else if (signal.priceDisplacementFromVwapPercent > 3.0) {
+    } else if (signal.priceDisplacementFromVwapPercent !== null && signal.priceDisplacementFromVwapPercent > 3.0) {
       canExecute = false;
       rejectionReason = `Price moved +${signal.priceDisplacementFromVwapPercent.toFixed(1)}% past elite VWAP - Chasing forbidden`;
-    } else if (signal.historicalExpectancy.netEvPercent <= 0) {
+    } else if (signal.historicalExpectancy.netEvPercent === null || signal.historicalExpectancy.netEvPercent <= 0) {
       canExecute = false;
-      rejectionReason = 'Simulated Net EV <= 0 after latency, slippage, and fees';
+      rejectionReason = signal.historicalExpectancy.netEvPercent === null
+        ? 'Net EV is null (insufficient historical data)'
+        : 'Simulated Net EV <= 0 after latency, slippage, and fees';
     } else if (signal.alphaScore < 85) {
       canExecute = false;
       rejectionReason = 'Alpha Score below minimum paper trading threshold (85)';

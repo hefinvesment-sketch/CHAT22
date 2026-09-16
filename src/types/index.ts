@@ -77,39 +77,39 @@ export interface WalletCopyability {
 export interface WalletProfile {
   address: string;
   label?: string;
-  firstSeenDaysAgo: number;
-  walletAgeDays: number;
-  portfolioValueUsd: number;
-  solBalance: number;
-  usdtBalance: number;
-  usdcBalance: number;
-  wbtcBalance: number;
-  wethBalance: number;
-  coreAssetRatio: number; // SOL + USDT + USDC + WBTC + WETH / total
+  firstSeenDaysAgo: number | null;
+  walletAgeDays: number | null;
+  portfolioValueUsd: number | null;
+  solBalance: number | null;
+  usdtBalance: number | null;
+  usdcBalance: number | null;
+  wbtcBalance: number | null;
+  wethBalance: number | null;
+  coreAssetRatio: number | null; // SOL + USDT + USDC + WBTC + WETH / total
   tradeCount: number;
   tokensTradedCount: number;
-  realizedPnlUsd: number;
-  unrealizedPnlUsd: number;
-  winRate: number; // 0-100
-  profitFactor: number;
-  maxDrawdownPercent: number;
-  avgHoldingTimeHours: number;
-  qualityScore: number; // 0-100
-  consistencyScore: number;
-  returnScore: number;
-  drawdownScore: number;
-  sampleScore: number;
-  concentrationPenalty: number;
-  top1TradeProfitPercent: number;
-  top3TradeProfitPercent: number;
-  top5TradeProfitPercent: number;
-  top10TradeProfitPercent: number;
-  emergingAlphaScore: number; // 0-100
-  momentumStatus: TraderMomentum;
-  genome: TraderGenome;
-  copyability: WalletCopyability;
+  realizedPnlUsd: number | null;
+  unrealizedPnlUsd: number | null;
+  winRate: number | null; // 0-100
+  profitFactor: number | null;
+  maxDrawdownPercent: number | null;
+  avgHoldingTimeHours: number | null;
+  qualityScore: number | null; // 0-100
+  consistencyScore: number | null;
+  returnScore: number | null;
+  drawdownScore: number | null;
+  sampleScore: number | null;
+  concentrationPenalty: number | null;
+  top1TradeProfitPercent: number | null;
+  top3TradeProfitPercent: number | null;
+  top5TradeProfitPercent: number | null;
+  top10TradeProfitPercent: number | null;
+  emergingAlphaScore: number | null; // 0-100
+  momentumStatus: TraderMomentum | null;
+  genome: TraderGenome | null;
+  copyability: WalletCopyability | null;
   isEligibleSmartMoney: boolean;
-  clusterId?: string;
+  clusterId?: string | null;
   relatedWalletsCount: number;
   holdings: WalletHolding[];
   rollingScores: {
@@ -120,7 +120,7 @@ export interface WalletProfile {
     ninetyDay: number;
     oneEightyDay: number;
     lifetime: number;
-  };
+  } | null;
 }
 
 export interface WalletTradeHistory {
@@ -161,7 +161,7 @@ export interface TokenMarketData {
   symbol: string;
   name: string;
   address: string;
-  decimals: number | 'TOKEN_DECIMALS_UNAVAILABLE';
+  decimals: number | null | 'TOKEN_DECIMALS_UNAVAILABLE';
   priceUsd: number | null;
   priceChange1h: number | null;
   priceChange24h: number | null;
@@ -235,25 +235,25 @@ export interface AlphaSignal {
   rejectionCode?: string;
   liquidityUsd?: number;
   tokenSecurityFlags?: {
-    mintAuthorityRevoked: boolean;
-    freezeAuthorityRevoked: boolean;
-    lpBurned: boolean;
-    isHoneypotSafe: boolean;
+    mintAuthorityRevoked: boolean | null;
+    freezeAuthorityRevoked: boolean | null;
+    lpBurned: boolean | null;
+    isHoneypotSafe: boolean | null;
   };
   features: AlphaSignalFeatureBreakdown;
   participantWallets: {
     address: string;
-    qualityScore: number;
-    convictionMultiplier: number;
+    qualityScore: number | null;
+    convictionMultiplier: number | null;
     tradeUsd: number;
     isIndependent: boolean;
     clusterId?: string;
   }[];
-  independentEliteCount: number;
-  totalSmartMoneyInflowUsd: number;
+  independentEliteCount: number | null;
+  totalSmartMoneyInflowUsd: number | null;
   priceAtSignal: number;
-  priceDisplacementFromVwapPercent: number;
-  currentRegime: MarketRegime;
+  priceDisplacementFromVwapPercent: number | null;
+  currentRegime: MarketRegime | null;
   historicalExpectancy: {
     dataStatus: 'INSUFFICIENT_SAMPLE' | 'VALID_SAMPLE';
     similarEventsCount: number;
@@ -298,13 +298,14 @@ export interface PaperPosition {
   currentValueUsd: number;
   unrealizedPnlUsd: number;
   unrealizedReturnPercent: number;
-  allocationPercent: number;
+  allocationPercent: number | null;
   stopLossPrice: number;
   takeProfitPrice: number;
   trailingStopPrice?: number;
-  strategyName: string;
+  strategyName: string | null;
+  strategyKey?: string | null;
   signalId: string;
-  signalAlphaScore: number;
+  signalAlphaScore: number | null;
   detectionLatencyMs: number;
   slippageIncurredPercent: number;
 }
@@ -325,7 +326,7 @@ export interface PaperTradeRecord {
   returnPercent: number;
   holdingPeriodMinutes: number;
   exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'SIGNAL_DETERIORATION' | 'SMART_MONEY_REVERSAL' | 'MANUAL_CLOSE';
-  strategyName: string;
+  strategyName?: string | null;
   feesPaidUsd: number;
   slippagePaidUsd: number;
 }
@@ -347,14 +348,14 @@ export interface PaperPortfolio {
   todayReturnPercent: number;
   weeklyPnlUsd: number;
   monthlyPnlUsd: number;
-  maxDrawdownPercent: number;
-  winRatePercent: number;
-  profitFactor: number;
-  expectedValuePerTradeUsd: number;
-  sharpeRatio: number;
-  averageSlippageBps: number;
-  averageDetectionLatencyMs: number;
-  copyEfficiencyPercent: number;
+  maxDrawdownPercent: number | null;
+  winRatePercent: number | null;
+  profitFactor: number | null;
+  expectedValuePerTradeUsd: number | null;
+  sharpeRatio: number | null;
+  averageSlippageBps: number | null;
+  averageDetectionLatencyMs: number | null;
+  copyEfficiencyPercent: number | null;
   totalTradesCount: number;
   openPositionsCount: number;
   totalFeesPaidUsd: number;
@@ -390,7 +391,17 @@ export interface SystemHealthStatus {
 export interface LiveEventItem {
   id: string;
   timestamp: string;
-  category: 'WALLET_DETECTED' | 'SMART_BUY' | 'SMART_SELL' | 'CONSENSUS_TRIGGER' | 'SIGNAL_GENERATED' | 'PAPER_EXECUTION' | 'POSITION_CLOSED' | 'HARD_REJECTION';
+  category: 
+    | 'WALLET_DETECTED' 
+    | 'SMART_BUY' 
+    | 'SMART_SELL' 
+    | 'DEX_BUY_OBSERVED'
+    | 'DEX_SELL_OBSERVED'
+    | 'CONSENSUS_TRIGGER' 
+    | 'SIGNAL_GENERATED' 
+    | 'PAPER_EXECUTION' 
+    | 'POSITION_CLOSED' 
+    | 'HARD_REJECTION';
   headline: string;
   detail: string;
   badgeType?: 'success' | 'warning' | 'info' | 'danger';

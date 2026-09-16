@@ -54,8 +54,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onExecuteTrade,
   onNavigateToTab
 }) => {
-  const topSignal = signals.find(s => s.alphaScore >= 85 && s.decision === 'TRADED') || signals[0];
-  const sortedTokens = [...tokens].sort((a, b) => b.netFlow24hUsd - a.netFlow24hUsd);
+  const topSignal = signals.find(s => (s.alphaScore ?? 0) >= 85 && s.decision === 'TRADED') || signals[0];
+  const sortedTokens = [...tokens].sort((a, b) => (b.netFlow24hUsd ?? 0) - (a.netFlow24hUsd ?? 0));
   const bestBot = [...parallelBots].sort((a, b) => b.totalReturnPercent - a.totalReturnPercent)[0];
 
   return (
@@ -92,11 +92,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-zinc-900/80 border border-zinc-800 rounded p-3">
           <div className="text-[10px] text-zinc-400 uppercase tracking-wider">Win Rate / PF</div>
           <div className="text-xl font-bold text-zinc-100 mt-1">
-            {portfolio.winRatePercent.toFixed(1)}%
+            {portfolio.winRatePercent != null ? `${portfolio.winRatePercent.toFixed(1)}%` : 'N/A'}
           </div>
           <div className="text-xs text-zinc-400 mt-1 flex justify-between">
             <span>Profit Factor:</span>
-            <span className="text-emerald-400 font-semibold">{portfolio.profitFactor.toFixed(2)}x</span>
+            <span className="text-emerald-400 font-semibold">{portfolio.profitFactor != null ? `${portfolio.profitFactor.toFixed(2)}x` : 'N/A'}</span>
           </div>
         </div>
 
@@ -104,11 +104,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-zinc-900/80 border border-zinc-800 rounded p-3">
           <div className="text-[10px] text-zinc-400 uppercase tracking-wider">Max DD / Sharpe</div>
           <div className="text-xl font-bold text-zinc-100 mt-1">
-            {portfolio.maxDrawdownPercent.toFixed(2)}%
+            {portfolio.maxDrawdownPercent != null ? `${portfolio.maxDrawdownPercent.toFixed(2)}%` : 'N/A'}
           </div>
           <div className="text-xs text-zinc-400 mt-1 flex justify-between">
             <span>Sharpe Ratio:</span>
-            <span className="text-cyan-400 font-semibold">{portfolio.sharpeRatio.toFixed(2)}</span>
+            <span className="text-cyan-400 font-semibold">{portfolio.sharpeRatio != null ? portfolio.sharpeRatio.toFixed(2) : 'N/A'}</span>
           </div>
         </div>
 
@@ -116,11 +116,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-zinc-900/80 border border-zinc-800 rounded p-3">
           <div className="text-[10px] text-zinc-400 uppercase tracking-wider">Execution Friction</div>
           <div className="text-xl font-bold text-zinc-100 mt-1">
-            {portfolio.averageSlippageBps} bps
+            {portfolio.averageSlippageBps ?? 0} bps
           </div>
           <div className="text-xs text-zinc-400 mt-1 flex justify-between">
             <span>Avg Latency:</span>
-            <span className="text-zinc-200 font-semibold">{portfolio.averageDetectionLatencyMs}ms</span>
+            <span className="text-zinc-200 font-semibold">{portfolio.averageDetectionLatencyMs ?? 0}ms</span>
           </div>
         </div>
 
@@ -128,7 +128,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-zinc-900/80 border border-zinc-800 rounded p-3">
           <div className="text-[10px] text-zinc-400 uppercase tracking-wider">Copy Efficiency</div>
           <div className="text-xl font-bold text-emerald-400 mt-1">
-            {portfolio.copyEfficiencyPercent.toFixed(1)}%
+            {portfolio.copyEfficiencyPercent != null ? `${portfolio.copyEfficiencyPercent.toFixed(1)}%` : 'N/A'}
           </div>
           <div className="text-xs text-zinc-400 mt-1 flex justify-between">
             <span>Active Open:</span>
@@ -220,11 +220,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Conviction Surprise:</span>
-                  <span className="text-zinc-200 font-semibold">{topSignal.features?.convictionSurpriseScore || 80} / 100</span>
+                  <span className="text-zinc-200 font-semibold">{topSignal.features?.convictionSurpriseScore?.value ?? 80} / 100</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Smart-Money Acceleration:</span>
-                  <span className="text-emerald-400 font-semibold">{topSignal.features?.smartMoneyAccelerationScore || 82} / 100</span>
+                  <span className="text-emerald-400 font-semibold">{topSignal.features?.smartMoneyAccelerationScore?.value ?? 82} / 100</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Historical Net EV:</span>
@@ -334,8 +334,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </tr>
                 ) : (
                   sortedTokens.slice(0, 5).map((tok, idx) => {
-                    const disp = tok.smartMoneyVwap > 0 
-                      ? Number((((tok.priceUsd - tok.smartMoneyVwap) / tok.smartMoneyVwap) * 100).toFixed(2))
+                    const vwap = tok.smartMoneyVwap ?? 0;
+                    const price = tok.priceUsd ?? 0;
+                    const disp = vwap > 0 
+                      ? Number((((price - vwap) / vwap) * 100).toFixed(2))
                       : 0;
                     return (
                       <tr key={tok.address || `${tok.symbol}-${idx}`} className="hover:bg-zinc-800/40 transition-colors">
@@ -345,11 +347,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </td>
                         <td className="py-2.5 font-semibold text-zinc-200">${tok.priceUsd}</td>
                         <td className="py-2.5">
-                          <span className={`font-semibold ${tok.netFlow24hUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {tok.netFlow24hUsd >= 0 ? '+' : ''}${(tok.netFlow24hUsd / 1000000).toFixed(2)}M
+                          <span className={`font-semibold ${(tok.netFlow24hUsd ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {(tok.netFlow24hUsd ?? 0) >= 0 ? '+' : ''}${((tok.netFlow24hUsd ?? 0) / 1000000).toFixed(2)}M
                           </span>
                         </td>
-                        <td className="py-2.5 text-zinc-400">${tok.smartMoneyVwap}</td>
+                        <td className="py-2.5 text-zinc-400">${tok.smartMoneyVwap ?? 0}</td>
                         <td className="py-2.5">
                           <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                             disp > 3.0 ? 'bg-rose-950/60 text-rose-300 border border-rose-800/40' : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/40'
@@ -357,10 +359,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             {disp >= 0 ? '+' : ''}{disp}%
                           </span>
                         </td>
-                        <td className="py-2.5 text-zinc-300">${(tok.liquidityUsd / 1000000).toFixed(1)}M</td>
+                        <td className="py-2.5 text-zinc-300">${((tok.liquidityUsd ?? 0) / 1000000).toFixed(1)}M</td>
                         <td className="py-2.5">
-                          <span className={`text-[10px] font-bold ${tok.riskScore <= 15 ? 'text-emerald-400' : tok.riskScore <= 30 ? 'text-amber-400' : 'text-rose-400'}`}>
-                            {tok.riskScore} / 100
+                          <span className={`text-[10px] font-bold ${(tok.riskScore ?? 0) <= 15 ? 'text-emerald-400' : (tok.riskScore ?? 0) <= 30 ? 'text-amber-400' : 'text-rose-400'}`}>
+                            {tok.riskScore ?? 'N/A'} / 100
                           </span>
                         </td>
                       </tr>

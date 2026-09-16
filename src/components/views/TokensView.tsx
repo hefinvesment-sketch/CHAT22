@@ -16,7 +16,7 @@ interface TokensViewProps {
 }
 
 export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
-  const [selectedToken, setSelectedToken] = useState<TokenMarketData | null>(tokens[0]);
+  const [selectedToken, setSelectedToken] = useState<TokenMarketData | null>(tokens[0] || null);
 
   return (
     <div className="space-y-4 p-4 font-mono select-none">
@@ -66,7 +66,8 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
                 </tr>
               ) : (
                 tokens.map((t, idx) => {
-                  const isSafe = t.riskScore <= 20;
+                  const risk = t.riskScore ?? 50;
+                  const isSafe = risk <= 20;
                   const isSelected = (selectedToken?.address && selectedToken.address === t.address) || 
                                      (!selectedToken?.address && selectedToken?.symbol === t.symbol);
 
@@ -84,8 +85,8 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
                     </td>
                     <td className="py-3 font-semibold text-zinc-200">${t.priceUsd}</td>
                     <td className="py-3 font-mono">
-                      <span className={t.liquidityUsd >= 2000000 ? 'text-zinc-200' : 'text-rose-400'}>
-                        ${(t.liquidityUsd / 1000000).toFixed(1)}M
+                      <span className={(t.liquidityUsd ?? 0) >= 2000000 ? 'text-zinc-200' : 'text-rose-400'}>
+                        ${((t.liquidityUsd ?? 0) / 1000000).toFixed(1)}M
                       </span>
                     </td>
                     <td className="py-3 font-mono text-zinc-300">
@@ -104,10 +105,10 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
                     <td className="py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                         isSafe ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30' :
-                        t.riskScore <= 35 ? 'bg-amber-950 text-amber-300 border border-amber-500/30' :
+                        risk <= 35 ? 'bg-amber-950 text-amber-300 border border-amber-500/30' :
                         'bg-rose-950 text-rose-400 border border-rose-500/30'
                       }`}>
-                        {t.riskScore} / 100
+                        {t.riskScore ?? 'N/A'} / 100
                       </span>
                     </td>
                     <td className="py-3 text-right">
@@ -132,8 +133,8 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
               </div>
               <div className="text-right">
                 <div className="text-xs text-zinc-400">Structural Risk</div>
-                <div className={`text-lg font-bold ${selectedToken.riskScore <= 20 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {selectedToken.riskScore} / 100
+                <div className={`text-lg font-bold ${(selectedToken.riskScore ?? 50) <= 20 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {selectedToken.riskScore ?? 'N/A'} / 100
                 </div>
               </div>
             </div>
@@ -143,7 +144,7 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
               <div className="p-2 rounded bg-zinc-950 border border-zinc-800 flex items-center justify-between">
                 <span className="text-zinc-400">Liquidity Depth:</span>
                 <span className="font-bold text-zinc-200">
-                  ${(selectedToken.liquidityUsd / 1000000).toFixed(2)}M (Safe &gt;$2.0M)
+                  ${((selectedToken.liquidityUsd ?? 0) / 1000000).toFixed(2)}M (Safe &gt;$2.0M)
                 </span>
               </div>
 
@@ -192,7 +193,7 @@ export const TokensView: React.FC<TokensViewProps> = ({ tokens }) => {
 
             <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400">
               <strong className="text-zinc-300">Safety Verdict:</strong>{' '}
-              {selectedToken.riskScore <= 20 
+              {(selectedToken.riskScore ?? 50) <= 20 
                 ? 'Approved for institutional paper execution when alpha signals trigger.' 
                 : 'Hard safety veto enabled. Trading blocked due to concentration or authority parameters.'}
             </div>

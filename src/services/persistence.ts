@@ -10,8 +10,10 @@ import {
   TokenMarketData,
   StrategyDecisionRecord,
   StrategyEquitySnapshot,
+  FeatureEvidence,
 } from '../types';
 import { ParsedTransactionRecord } from './heliusParser';
+import { getErrorMessage } from '../utils/errors';
 
 export interface StorageAdapter {
   init(): Promise<void>;
@@ -24,7 +26,7 @@ export interface StorageAdapter {
   saveTrade(trade: PaperTradeRecord): Promise<void>;
   getTrades(portfolioId: string): Promise<PaperTradeRecord[]>;
   saveSignal(signal: AlphaSignal): Promise<void>;
-  getSignals(_limit?: number): Promise<AlphaSignal[]>;
+  getSignals(limit?: number): Promise<AlphaSignal[]>;
   saveRiskEvent(event: {
     portfolioId?: string;
     signalId?: string;
@@ -37,23 +39,25 @@ export interface StorageAdapter {
   getWallets(): Promise<WalletProfile[]>;
   saveTransaction(tx: ParsedTransactionRecord): Promise<void>;
   saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void>;
-  getTransactions(_limit?: number): Promise<ParsedTransactionRecord[]>;
-  getTransactionsForToken(_tokenAddress: string, _fromTimestamp?: string, _toTimestamp?: string): Promise<ParsedTransactionRecord[]>;
+  getTransactions(limit?: number): Promise<ParsedTransactionRecord[]>;
+  getTransactionsForToken(tokenAddress: string, fromTimestamp?: string, toTimestamp?: string): Promise<ParsedTransactionRecord[]>;
   saveToken(token: TokenMarketData): Promise<void>;
   getTokens(): Promise<TokenMarketData[]>;
 
   saveStrategyDecision(record: StrategyDecisionRecord): Promise<void>;
-  getStrategyDecisions(_limit?: number): Promise<StrategyDecisionRecord[]>;
-  getStrategyDecisionsForStrategy(_strategyKey: string, _limit?: number): Promise<StrategyDecisionRecord[]>;
-  getStrategyDecisionsForSignal(_signalId: string): Promise<StrategyDecisionRecord[]>;
+  getStrategyDecisions(limit?: number): Promise<StrategyDecisionRecord[]>;
+  getStrategyDecisionsForStrategy(strategyKey: string, limit?: number): Promise<StrategyDecisionRecord[]>;
+  getStrategyDecisionsForSignal(signalId: string): Promise<StrategyDecisionRecord[]>;
   saveStrategyEquitySnapshot(snapshot: StrategyEquitySnapshot): Promise<void>;
-  getStrategyEquitySnapshots(_strategyKey: string, _limit?: number): Promise<StrategyEquitySnapshot[]>;
+  getStrategyEquitySnapshots(strategyKey: string, limit?: number): Promise<StrategyEquitySnapshot[]>;
   saveProviderHealth(record: {
     providerName: string;
     status: string;
     latencyMs?: number;
     message?: string;
   }): Promise<void>;
+  getIngestionCheckpoint(sourceKey: string): Promise<{ lastSignature: string; lastSlot: number } | null>;
+  saveIngestionCheckpoint(sourceKey: string, signature: string, slot: number): Promise<void>;
 }
 
 /**
@@ -100,9 +104,10 @@ export class PostgresPersistenceStore implements StorageAdapter {
 
       this.isInitialized = true;
       this.connectionError = null;
-    } catch (_err: unknown) {
-      this.connectionError = err.message;
-      console.error('[PostgresPersistenceStore Init Error]:', err.message);
+    } catch (err: unknown) {
+      const msg = getErrorMessage(err);
+      this.connectionError = msg;
+      console.error('[PostgresPersistenceStore Init Error]:', msg);
       throw err;
     }
   }
@@ -139,8 +144,8 @@ export class PostgresPersistenceStore implements StorageAdapter {
         }
       }
       console.log('[PostgresPersistenceStore]: All migrations are up to date.');
-    } catch (_err: unknown) {
-      console.error('[PostgresPersistenceStore Migration Error]:', err.message);
+    } catch (err: unknown) {
+      console.error('[PostgresPersistenceStore Migration Error]:', getErrorMessage(err));
       throw err;
     }
   }
@@ -161,8 +166,8 @@ export class PostgresPersistenceStore implements StorageAdapter {
         return { isConnected: true, latencyMs, message: 'PostgreSQL connection verified via SELECT 1.' };
       }
       return { isConnected: false, latencyMs, message: 'Unexpected probe query response.' };
-    } catch (_err: unknown) {
-      return { isConnected: false, message: `PostgreSQL probe query failed: ${err.message}` };
+    } catch (err: unknown) {
+      return { isConnected: false, message: `PostgreSQL probe query failed: ${getErrorMessage(err)}` };
     }
   }
 
@@ -220,14 +225,14 @@ export class PostgresPersistenceStore implements StorageAdapter {
       todayReturnPercent: 0,
       weeklyPnlUsd: parseFloat(row.realized_pnl_usd),
       monthlyPnlUsd: parseFloat(row.realized_pnl_usd),
-      maxDrawdownPercent: 0,
-      winRatePercent: 0,
-      profitFactor: 1.0,
-      expectedValuePerTradeUsd: 0,
-      sharpeRatio: 0,
-      averageSlippageBps: 35,
-      averageDetectionLatencyMs: 650,
-      copyEfficiencyPercent: 100,
+      maxDrawdownPercent: null,
+      winRatePercent: null,
+      profitFactor: null,
+      expectedValuePerTradeUsd: null,
+      sharpeRatio: null,
+      averageSlippageBps: null,
+      averageDetectionLatencyMs: null,
+      copyEfficiencyPercent: null,
       totalTradesCount: 0,
       openPositionsCount: 0,
       totalFeesPaidUsd: parseFloat(row.total_fees_paid_usd),
@@ -248,13 +253,18 @@ export class PostgresPersistenceStore implements StorageAdapter {
         id, portfolio_id, token_symbol, token_address, opened_at,
         open_price, current_price, amount, cost_basis_usd, current_value_usd,
         unrealized_pnl_usd, stop_loss_price, take_profit_price, trailing_stop_price,
-        signal_id, detection_latency_ms, slippage_percent
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        signal_id, detection_latency_ms, slippage_percent,
+        signal_alpha_score, strategy_name, strategy_key, allocation_percent
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       ON CONFLICT (id) DO UPDATE SET
         current_price = EXCLUDED.current_price,
         current_value_usd = EXCLUDED.current_value_usd,
         unrealized_pnl_usd = EXCLUDED.unrealized_pnl_usd,
-        trailing_stop_price = EXCLUDED.trailing_stop_price;
+        trailing_stop_price = EXCLUDED.trailing_stop_price,
+        signal_alpha_score = EXCLUDED.signal_alpha_score,
+        strategy_name = EXCLUDED.strategy_name,
+        strategy_key = EXCLUDED.strategy_key,
+        allocation_percent = EXCLUDED.allocation_percent;
     `;
     await this.pool.query(query, [
       position.id,
@@ -273,7 +283,11 @@ export class PostgresPersistenceStore implements StorageAdapter {
       position.trailingStopPrice || null,
       position.signalId || null,
       position.detectionLatencyMs,
-      position.slippageIncurredPercent
+      position.slippageIncurredPercent,
+      position.signalAlphaScore ?? null,
+      position.strategyName ?? null,
+      position.strategyKey ?? null,
+      position.allocationPercent ?? null
     ]);
   }
 
@@ -298,13 +312,14 @@ export class PostgresPersistenceStore implements StorageAdapter {
       currentValueUsd: parseFloat(row.current_value_usd),
       unrealizedPnlUsd: parseFloat(row.unrealized_pnl_usd),
       unrealizedReturnPercent: parseFloat(row.cost_basis_usd) > 0 ? (parseFloat(row.unrealized_pnl_usd) / parseFloat(row.cost_basis_usd)) * 100 : 0,
-      allocationPercent: 0,
+      allocationPercent: row.allocation_percent !== null && row.allocation_percent !== undefined ? parseFloat(row.allocation_percent) : null,
       stopLossPrice: parseFloat(row.stop_loss_price),
       takeProfitPrice: parseFloat(row.take_profit_price),
       trailingStopPrice: row.trailing_stop_price ? parseFloat(row.trailing_stop_price) : undefined,
-      strategyName: 'AlphaGraph Institutional Strategy',
+      strategyName: row.strategy_name || null,
+      strategyKey: row.strategy_key || null,
       signalId: row.signal_id,
-      signalAlphaScore: 90,
+      signalAlphaScore: row.signal_alpha_score !== null && row.signal_alpha_score !== undefined ? parseFloat(row.signal_alpha_score) : null,
       detectionLatencyMs: row.detection_latency_ms,
       slippageIncurredPercent: parseFloat(row.slippage_percent)
     }));
@@ -363,7 +378,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
       realizedPnlUsd: parseFloat(row.realized_pnl_usd),
       returnPercent: parseFloat(row.return_percent),
       holdingPeriodMinutes: Math.round((new Date(row.closed_at).getTime() - new Date(row.opened_at).getTime()) / 60000),
-      exitReason: row.exit_reason as unknown /* PaperTradeRecord['exitReason'] */,
+      exitReason: row.exit_reason as PaperTradeRecord['exitReason'],
       strategyName: 'AlphaGraph Institutional Strategy',
       feesPaidUsd: parseFloat(row.fees_paid_usd),
       slippagePaidUsd: parseFloat(row.slippage_paid_usd)
@@ -520,11 +535,11 @@ export class PostgresPersistenceStore implements StorageAdapter {
       WHERE signal_id = ANY($1)
     `, [signalIds]);
     
-    const evidenceBySignal = new Map<string, Record<string, unknown>>();
+    const evidenceBySignal = new Map<string, Record<string, FeatureEvidence<number>>>();
     for (const row of evidenceRes.rows) {
       if (!evidenceBySignal.has(row.signal_id)) evidenceBySignal.set(row.signal_id, {});
       evidenceBySignal.get(row.signal_id)![row.feature_name] = {
-        value: row.value !== null ? parseFloat(row.value) : null,
+        value: row.value !== null ? parseFloat(row.value) : 0,
         status: row.status,
         source: row.source,
         timestamp: new Date(row.observed_at).toISOString(),
@@ -644,114 +659,87 @@ export class PostgresPersistenceStore implements StorageAdapter {
     const query = `
       INSERT INTO wallets (
         address, label, wallet_age_days, core_asset_ratio, portfolio_value_usd,
-        trade_count, quality_score, copyability_score, is_active, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, NOW())
+        trade_count, quality_score, copyability_score, is_eligible_smart_money, is_active, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, NOW())
       ON CONFLICT (address) DO UPDATE SET
-        portfolio_value_usd = EXCLUDED.portfolio_value_usd,
+        label = COALESCE(EXCLUDED.label, wallets.label),
+        wallet_age_days = COALESCE(EXCLUDED.wallet_age_days, wallets.wallet_age_days),
+        core_asset_ratio = COALESCE(EXCLUDED.core_asset_ratio, wallets.core_asset_ratio),
+        portfolio_value_usd = COALESCE(EXCLUDED.portfolio_value_usd, wallets.portfolio_value_usd),
         trade_count = EXCLUDED.trade_count,
-        quality_score = EXCLUDED.quality_score,
-        copyability_score = EXCLUDED.copyability_score,
+        quality_score = COALESCE(EXCLUDED.quality_score, wallets.quality_score),
+        copyability_score = COALESCE(EXCLUDED.copyability_score, wallets.copyability_score),
+        is_eligible_smart_money = EXCLUDED.is_eligible_smart_money,
         updated_at = NOW();
     `;
     await this.pool.query(query, [
       wallet.address,
       wallet.label || null,
-      wallet.walletAgeDays || 0,
-      wallet.coreAssetRatio || 0,
-      wallet.portfolioValueUsd || 0,
+      wallet.walletAgeDays ?? null,
+      wallet.coreAssetRatio ?? null,
+      wallet.portfolioValueUsd ?? null,
       wallet.tradeCount || 0,
-      wallet.qualityScore || 50,
-      wallet.copyability?.copyabilityScore || 50
+      wallet.qualityScore ?? null,
+      wallet.copyability?.copyabilityScore ?? null,
+      wallet.isEligibleSmartMoney ?? false
     ]);
   }
 
   public async getWallets(): Promise<WalletProfile[]> {
     if (!this.pool) return [];
-    const res = await this.pool.query('SELECT * FROM wallets WHERE is_active = TRUE ORDER BY quality_score DESC');
+    const res = await this.pool.query('SELECT * FROM wallets WHERE is_active = TRUE ORDER BY quality_score DESC NULLS LAST');
     return res.rows.map(row => ({
       address: row.address,
-      label: row.label,
-      firstSeenDaysAgo: row.wallet_age_days,
-      walletAgeDays: row.wallet_age_days,
-      portfolioValueUsd: parseFloat(row.portfolio_value_usd),
-      solBalance: 0,
-      usdtBalance: 0,
-      usdcBalance: 0,
-      wbtcBalance: 0,
-      wethBalance: 0,
-      coreAssetRatio: parseFloat(row.core_asset_ratio),
-      tradeCount: row.trade_count,
-      tokensTradedCount: Math.round(row.trade_count * 0.4),
-      realizedPnlUsd: 0,
-      unrealizedPnlUsd: 0,
-      winRate: 65,
-      profitFactor: 2.1,
-      maxDrawdownPercent: 12.0,
-      avgHoldingTimeHours: 18,
-      qualityScore: row.quality_score,
-      consistencyScore: 80,
-      returnScore: 85,
-      drawdownScore: 80,
-      sampleScore: 80,
-      concentrationPenalty: 0,
-      top1TradeProfitPercent: 25,
-      top3TradeProfitPercent: 45,
-      top5TradeProfitPercent: 60,
-      top10TradeProfitPercent: 80,
-      emergingAlphaScore: 75,
-      momentumStatus: 'Stable',
-      isEligibleSmartMoney: row.quality_score >= 80,
-      clusterId: 'CLUSTER-SOL-ALPHA',
+      label: row.label || undefined,
+      firstSeenDaysAgo: row.wallet_age_days !== null ? parseInt(row.wallet_age_days, 10) : null,
+      walletAgeDays: row.wallet_age_days !== null ? parseInt(row.wallet_age_days, 10) : null,
+      portfolioValueUsd: row.portfolio_value_usd !== null ? parseFloat(row.portfolio_value_usd) : null,
+      solBalance: null,
+      usdtBalance: null,
+      usdcBalance: null,
+      wbtcBalance: null,
+      wethBalance: null,
+      coreAssetRatio: row.core_asset_ratio !== null ? parseFloat(row.core_asset_ratio) : null,
+      tradeCount: row.trade_count || 0,
+      tokensTradedCount: 0,
+      realizedPnlUsd: null,
+      unrealizedPnlUsd: null,
+      winRate: null,
+      profitFactor: null,
+      maxDrawdownPercent: null,
+      avgHoldingTimeHours: null,
+      qualityScore: row.quality_score !== null ? parseFloat(row.quality_score) : null,
+      consistencyScore: null,
+      returnScore: null,
+      drawdownScore: null,
+      sampleScore: null,
+      concentrationPenalty: null,
+      top1TradeProfitPercent: null,
+      top3TradeProfitPercent: null,
+      top5TradeProfitPercent: null,
+      top10TradeProfitPercent: null,
+      emergingAlphaScore: null,
+      momentumStatus: null,
+      isEligibleSmartMoney: row.is_eligible_smart_money ?? false,
+      clusterId: null,
       relatedWalletsCount: 0,
-      genome: {
-        overallSkill: row.quality_score,
-        momentumSkill: 80,
-        swingTradingSkill: 85,
-        earlyEntrySkill: 80,
-        largeCapSkill: 75,
-        midCapSkill: 85,
-        smallCapSkill: 80,
-        solEcosystemSkill: 90,
-        memecoinSkill: 60,
-        riskOnSkill: 85,
-        riskOffSkill: 75,
-        highVolatilitySkill: 85,
-        lowVolatilitySkill: 70,
-        trendFollowingSkill: 85,
-        meanReversionSkill: 70,
-        exitSkill: 80,
-        entrySkill: 85,
-        drawdownControl: 80,
-        diversificationQuality: 75,
-        medianPositionPercent: 4.5,
-        medianHoldingTimeHours: 18,
-        bestMarketRegime: 'Trending Up',
-        preferredMarketCap: 'Mid Cap'
-      },
-      copyability: {
-        copyabilityScore: row.copyability_score,
-        sourceTraderReturn: 80,
-        achievableSimulatedReturn: 62,
-        latencyLossPercent: -5.2,
-        slippageLossPercent: -6.8,
-        feeLossPercent: -2.1,
-        missedTradePercent: 4.0,
-        exitMismatchLossPercent: -3.9,
-        copyEfficiency: 77.5,
-        averageDetectionLatencyMs: 650,
-        averageSlippageBps: 35,
-        recommendation: row.copyability_score >= 70 ? 'EXCELLENT_TO_COPY' : 'MODERATE_VIABILITY'
-      },
+      genome: null,
+      copyability: row.copyability_score !== null ? {
+        copyabilityScore: parseFloat(row.copyability_score),
+        sourceTraderReturn: 0,
+        achievableSimulatedReturn: 0,
+        latencyLossPercent: 0,
+        slippageLossPercent: 0,
+        feeLossPercent: 0,
+        missedTradePercent: 0,
+        exitMismatchLossPercent: 0,
+        copyEfficiency: 0,
+        averageDetectionLatencyMs: 0,
+        averageSlippageBps: 0,
+        recommendation: parseFloat(row.copyability_score) >= 70 ? 'EXCELLENT_TO_COPY' : 'MODERATE_VIABILITY'
+      } : null,
       holdings: [],
-      rollingScores: {
-        sevenDay: 82,
-        fourteenDay: 84,
-        thirtyDay: row.quality_score,
-        sixtyDay: 78,
-        ninetyDay: 80,
-        oneEightyDay: 75,
-        lifetime: row.quality_score
-      }
+      rollingScores: null
     }));
   }
 
@@ -813,8 +801,8 @@ export class PostgresPersistenceStore implements StorageAdapter {
           tx.transactionFeeUsd
         ]
       );
-    } catch (_err: unknown) {
-      console.warn(`[Persistence saveTransaction Warning]: ${err.message}`);
+    } catch (err: unknown) {
+      console.warn(`[Persistence saveTransaction Warning]: ${getErrorMessage(err)}`);
     }
   }
 
@@ -833,22 +821,22 @@ export class PostgresPersistenceStore implements StorageAdapter {
       );
       return res.rows.map(row => ({
         signature: row.signature,
-        slot: 0,
+        slot: row.slot ? parseInt(row.slot, 10) : 0,
         timestamp: new Date(row.timestamp).toISOString(),
         walletAddress: row.wallet_address,
-        dex: 'Solana DEX',
+        dex: row.dex || 'Solana DEX',
         tradeDirection: row.trade_direction,
-        tokenInAddress: row.token_address,
-        tokenInSymbol: row.token_symbol,
-        tokenInAmount: parseFloat(row.token_amount),
-        tokenOutAddress: row.token_address,
-        tokenOutSymbol: row.token_symbol,
-        tokenOutAmount: parseFloat(row.token_amount),
-        executionPriceUsd: parseFloat(row.execution_price_usd),
-        usdValue: parseFloat(row.usd_value),
-        transactionFeeUsd: parseFloat(row.fee_usd),
+        tokenInAddress: row.token_in_address || row.token_address || '',
+        tokenInSymbol: row.token_in_symbol || row.token_symbol || '',
+        tokenInAmount: row.token_in_amount !== null ? parseFloat(row.token_in_amount) : (row.token_amount ? parseFloat(row.token_amount) : 0),
+        tokenOutAddress: row.token_out_address || row.token_address || '',
+        tokenOutSymbol: row.token_out_symbol || row.token_symbol || '',
+        tokenOutAmount: row.token_out_amount !== null ? parseFloat(row.token_out_amount) : (row.token_amount ? parseFloat(row.token_amount) : 0),
+        executionPriceUsd: row.execution_price_usd !== null ? parseFloat(row.execution_price_usd) : 0,
+        usdValue: row.usd_value !== null ? parseFloat(row.usd_value) : 0,
+        transactionFeeUsd: row.fee_usd !== null ? parseFloat(row.fee_usd) : 0,
         isStablecoinRotation: false,
-        isAirdropOrTransfer: row.is_airdrop_or_transfer
+        isAirdropOrTransfer: row.is_airdrop_or_transfer ?? false
       }));
     } catch {
       return [];
@@ -856,13 +844,13 @@ export class PostgresPersistenceStore implements StorageAdapter {
   }
 
   public async getTransactionsForToken(
-    _tokenAddress: string,
-    _fromTimestamp?: string,
-    _toTimestamp?: string
+    tokenAddress: string,
+    fromTimestamp?: string,
+    toTimestamp?: string
   ): Promise<ParsedTransactionRecord[]> {
     if (!this.pool) return [];
     try {
-      let query = `SELECT * FROM wallet_trades WHERE LOWER(token_address) = LOWER($1)`;
+      let query = `SELECT * FROM wallet_trades WHERE (LOWER(token_address) = LOWER($1) OR LOWER(token_in_address) = LOWER($1) OR LOWER(token_out_address) = LOWER($1))`;
       const params: unknown[] = [tokenAddress];
       if (fromTimestamp) {
         params.push(fromTimestamp);
@@ -876,22 +864,22 @@ export class PostgresPersistenceStore implements StorageAdapter {
       const res = await this.pool.query(query, params);
       return res.rows.map(row => ({
         signature: row.signature,
-        slot: 0,
+        slot: row.slot ? parseInt(row.slot, 10) : 0,
         timestamp: new Date(row.timestamp).toISOString(),
         walletAddress: row.wallet_address,
-        dex: 'Solana DEX',
+        dex: row.dex || 'Solana DEX',
         tradeDirection: row.trade_direction,
-        tokenInAddress: row.trade_direction === 'BUY' ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' : row.token_address,
-        tokenInSymbol: row.trade_direction === 'BUY' ? 'USDC' : row.token_symbol,
-        tokenInAmount: parseFloat(row.token_amount),
-        tokenOutAddress: row.trade_direction === 'BUY' ? row.token_address : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-        tokenOutSymbol: row.trade_direction === 'BUY' ? row.token_symbol : 'USDC',
-        tokenOutAmount: parseFloat(row.token_amount),
-        executionPriceUsd: parseFloat(row.execution_price_usd),
-        usdValue: parseFloat(row.usd_value),
-        transactionFeeUsd: parseFloat(row.fee_usd),
+        tokenInAddress: row.token_in_address || (row.trade_direction === 'BUY' ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' : row.token_address) || '',
+        tokenInSymbol: row.token_in_symbol || (row.trade_direction === 'BUY' ? 'USDC' : row.token_symbol) || '',
+        tokenInAmount: row.token_in_amount !== null ? parseFloat(row.token_in_amount) : (row.token_amount ? parseFloat(row.token_amount) : 0),
+        tokenOutAddress: row.token_out_address || (row.trade_direction === 'BUY' ? row.token_address : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') || '',
+        tokenOutSymbol: row.token_out_symbol || (row.trade_direction === 'BUY' ? row.token_symbol : 'USDC') || '',
+        tokenOutAmount: row.token_out_amount !== null ? parseFloat(row.token_out_amount) : (row.token_amount ? parseFloat(row.token_amount) : 0),
+        executionPriceUsd: row.execution_price_usd !== null ? parseFloat(row.execution_price_usd) : 0,
+        usdValue: row.usd_value !== null ? parseFloat(row.usd_value) : 0,
+        transactionFeeUsd: row.fee_usd !== null ? parseFloat(row.fee_usd) : 0,
         isStablecoinRotation: false,
-        isAirdropOrTransfer: row.is_airdrop_or_transfer
+        isAirdropOrTransfer: row.is_airdrop_or_transfer ?? false
       }));
     } catch {
       return [];
@@ -901,70 +889,98 @@ export class PostgresPersistenceStore implements StorageAdapter {
   public async saveToken(token: TokenMarketData): Promise<void> {
     if (!this.pool) return;
     try {
+      const decimalsVal = (token.decimals === 'TOKEN_DECIMALS_UNAVAILABLE' || token.decimals === null || token.decimals === undefined)
+        ? null
+        : token.decimals;
+      const mintRevoked = token.hasMintAuthority !== null && token.hasMintAuthority !== undefined ? !token.hasMintAuthority : null;
+      const freezeRevoked = token.hasFreezeAuthority !== null && token.hasFreezeAuthority !== undefined ? !token.hasFreezeAuthority : null;
+
       await this.pool.query(
         `INSERT INTO tokens (
           address, symbol, name, decimals, liquidity_usd, market_cap_usd,
           mint_authority_revoked, freeze_authority_revoked, top_10_holder_percent,
-          is_honeypot_safe, risk_score, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+          is_honeypot_safe, risk_score, volume_24h_usd, fdv_usd, holder_count,
+          token_age_days, top_20_holder_percent, dev_holdings_percent, liquidity_locked_percent,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
         ON CONFLICT (address) DO UPDATE SET
+          symbol = EXCLUDED.symbol,
+          name = EXCLUDED.name,
+          decimals = COALESCE(EXCLUDED.decimals, tokens.decimals),
           liquidity_usd = EXCLUDED.liquidity_usd,
           market_cap_usd = EXCLUDED.market_cap_usd,
+          mint_authority_revoked = COALESCE(EXCLUDED.mint_authority_revoked, tokens.mint_authority_revoked),
+          freeze_authority_revoked = COALESCE(EXCLUDED.freeze_authority_revoked, tokens.freeze_authority_revoked),
+          top_10_holder_percent = COALESCE(EXCLUDED.top_10_holder_percent, tokens.top_10_holder_percent),
+          is_honeypot_safe = COALESCE(EXCLUDED.is_honeypot_safe, tokens.is_honeypot_safe),
           risk_score = EXCLUDED.risk_score,
+          volume_24h_usd = COALESCE(EXCLUDED.volume_24h_usd, tokens.volume_24h_usd),
+          fdv_usd = COALESCE(EXCLUDED.fdv_usd, tokens.fdv_usd),
+          holder_count = COALESCE(EXCLUDED.holder_count, tokens.holder_count),
+          token_age_days = COALESCE(EXCLUDED.token_age_days, tokens.token_age_days),
+          top_20_holder_percent = COALESCE(EXCLUDED.top_20_holder_percent, tokens.top_20_holder_percent),
+          dev_holdings_percent = COALESCE(EXCLUDED.dev_holdings_percent, tokens.dev_holdings_percent),
+          liquidity_locked_percent = COALESCE(EXCLUDED.liquidity_locked_percent, tokens.liquidity_locked_percent),
           updated_at = NOW();`,
         [
           token.address,
           token.symbol,
           token.name,
-          token.decimals,
-          token.liquidityUsd,
-          token.marketCapUsd,
-          !token.hasMintAuthority,
-          !token.hasFreezeAuthority,
-          token.top10HoldersPercent,
-          token.isHoneypotSafe,
-          token.riskScore
+          decimalsVal,
+          token.liquidityUsd ?? null,
+          token.marketCapUsd ?? null,
+          mintRevoked,
+          freezeRevoked,
+          token.top10HoldersPercent ?? null,
+          token.isHoneypotSafe ?? null,
+          token.riskScore ?? null,
+          token.volume24hUsd ?? null,
+          token.fdvUsd ?? null,
+          token.holderCount ?? null,
+          token.tokenAgeDays ?? null,
+          token.top20HoldersPercent ?? null,
+          token.devHoldingsPercent ?? null,
+          token.liquidityLockedPercent ?? null
         ]
       );
-    } catch (_err: unknown) {
-      console.warn(`[Persistence saveToken Warning]: ${err.message}`);
+    } catch (err: unknown) {
+      console.warn(`[Persistence saveToken Warning]: ${getErrorMessage(err)}`);
     }
   }
 
   public async getTokens(): Promise<TokenMarketData[]> {
     if (!this.pool) return [];
     try {
-      const res = await this.pool.query(`SELECT * FROM tokens ORDER BY liquidity_usd DESC LIMIT 50`);
+      const res = await this.pool.query(`SELECT * FROM tokens ORDER BY liquidity_usd DESC NULLS LAST LIMIT 50`);
       return res.rows.map(row => ({
         symbol: row.symbol,
         name: row.name,
         address: row.address,
-        decimals: row.decimals || 6,
-        priceUsd: 0,
-        priceChange1h: 0,
-        priceChange24h: 0,
-        volume24hUsd: 0,
-        liquidityUsd: parseFloat(row.liquidity_usd) || 0,
-        marketCapUsd: parseFloat(row.market_cap_usd) || 0,
-        fdvUsd: parseFloat(row.market_cap_usd) || 0,
-        holderCount: 1500,
-        tokenAgeDays: 45,
-        top10HoldersPercent: parseFloat(row.top_10_holder_percent) || 25,
-        top20HoldersPercent: 35,
-        devHoldingsPercent: 2.5,
-        hasFreezeAuthority: !row.freeze_authority_revoked,
-        hasMintAuthority: !row.mint_authority_revoked,
-        liquidityLockedPercent: 95,
-        isHoneypotSafe: row.is_honeypot_safe,
-        riskScore: row.risk_score || 20,
-        smartMoneyVwap: 0,
-        netFlow24hUsd: 0
+        decimals: row.decimals !== null ? parseInt(row.decimals, 10) : 'TOKEN_DECIMALS_UNAVAILABLE',
+        priceUsd: null,
+        priceChange1h: null,
+        priceChange24h: null,
+        volume24hUsd: row.volume_24h_usd !== null ? parseFloat(row.volume_24h_usd) : null,
+        liquidityUsd: row.liquidity_usd !== null ? parseFloat(row.liquidity_usd) : null,
+        marketCapUsd: row.market_cap_usd !== null ? parseFloat(row.market_cap_usd) : null,
+        fdvUsd: row.fdv_usd !== null ? parseFloat(row.fdv_usd) : null,
+        holderCount: row.holder_count !== null ? parseInt(row.holder_count, 10) : null,
+        tokenAgeDays: row.token_age_days !== null ? parseInt(row.token_age_days, 10) : null,
+        top10HoldersPercent: row.top_10_holder_percent !== null ? parseFloat(row.top_10_holder_percent) : null,
+        top20HoldersPercent: row.top_20_holder_percent !== null ? parseFloat(row.top_20_holder_percent) : null,
+        devHoldingsPercent: row.dev_holdings_percent !== null ? parseFloat(row.dev_holdings_percent) : null,
+        hasFreezeAuthority: row.freeze_authority_revoked !== null ? !row.freeze_authority_revoked : null,
+        hasMintAuthority: row.mint_authority_revoked !== null ? !row.mint_authority_revoked : null,
+        liquidityLockedPercent: row.liquidity_locked_percent !== null ? parseFloat(row.liquidity_locked_percent) : null,
+        isHoneypotSafe: row.is_honeypot_safe !== null ? row.is_honeypot_safe : null,
+        riskScore: row.risk_score !== null ? parseFloat(row.risk_score) : null,
+        smartMoneyVwap: null,
+        netFlow24hUsd: null
       }));
     } catch {
       return [];
     }
   }
-
 
   public async saveStrategyDecision(record: StrategyDecisionRecord): Promise<void> {
     if (!this.pool) return;
@@ -989,7 +1005,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
     ]);
   }
 
-  public async getStrategyDecisions(limit: number = 100): Promise<unknown[]> {
+  public async getStrategyDecisions(limit: number = 100): Promise<StrategyDecisionRecord[]> {
     if (!this.pool) return [];
     const res = await this.pool.query('SELECT * FROM strategy_signal_decisions ORDER BY evaluated_at DESC LIMIT $1', [limit]);
     return res.rows.map(r => ({
@@ -1000,7 +1016,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
     }));
   }
 
-  public async getStrategyDecisionsForStrategy(_strategyKey: string, limit: number = 100): Promise<unknown[]> {
+  public async getStrategyDecisionsForStrategy(strategyKey: string, limit: number = 100): Promise<StrategyDecisionRecord[]> {
     if (!this.pool) return [];
     const res = await this.pool.query('SELECT * FROM strategy_signal_decisions WHERE strategy_key = $1 ORDER BY evaluated_at DESC LIMIT $2', [strategyKey, limit]);
     return res.rows.map(r => ({
@@ -1011,7 +1027,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
     }));
   }
 
-  public async getStrategyDecisionsForSignal(_signalId: string): Promise<StrategyDecisionRecord[]> {
+  public async getStrategyDecisionsForSignal(signalId: string): Promise<StrategyDecisionRecord[]> {
     if (!this.pool) return [];
     const res = await this.pool.query('SELECT * FROM strategy_signal_decisions WHERE signal_id = $1 ORDER BY evaluated_at DESC', [signalId]);
     return res.rows.map(r => ({
@@ -1034,7 +1050,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
     ]);
   }
 
-  public async getStrategyEquitySnapshots(_strategyKey: string, limit: number = 1000): Promise<StrategyEquitySnapshot[]> {
+  public async getStrategyEquitySnapshots(strategyKey: string, limit: number = 1000): Promise<StrategyEquitySnapshot[]> {
     if (!this.pool) return [];
     const res = await this.pool.query('SELECT * FROM strategy_equity_snapshots WHERE strategy_key = $1 ORDER BY timestamp ASC LIMIT $2', [strategyKey, limit]);
     return res.rows.map(r => ({
@@ -1056,6 +1072,32 @@ export class PostgresPersistenceStore implements StorageAdapter {
       [record.providerName, record.status, record.latencyMs || null, record.message || null]
     );
   }
+
+  public async getIngestionCheckpoint(sourceKey: string): Promise<{ lastSignature: string; lastSlot: number } | null> {
+    if (!this.pool) return null;
+    const res = await this.pool.query(
+      'SELECT last_signature, last_slot FROM ingestion_checkpoints WHERE source_key = $1',
+      [sourceKey]
+    );
+    if (!res.rows[0]) return null;
+    return {
+      lastSignature: res.rows[0].last_signature,
+      lastSlot: parseInt(res.rows[0].last_slot, 10) || 0
+    };
+  }
+
+  public async saveIngestionCheckpoint(sourceKey: string, signature: string, slot: number): Promise<void> {
+    if (!this.pool) return;
+    await this.pool.query(
+      `INSERT INTO ingestion_checkpoints (source_key, last_signature, last_slot, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (source_key) DO UPDATE SET
+         last_signature = EXCLUDED.last_signature,
+         last_slot = EXCLUDED.last_slot,
+         updated_at = NOW();`,
+      [sourceKey, signature, slot]
+    );
+  }
 }
 
 /**
@@ -1064,58 +1106,195 @@ export class PostgresPersistenceStore implements StorageAdapter {
  */
 export class MemoryPersistenceStore implements StorageAdapter {
   private signals: Map<string, AlphaSignal> = new Map();
-  private riskEvents: unknown[] = [];
-  private providerHealth: unknown[] = [];
-  private wallets: Map<string, unknown> = new Map();
-  private transactions: unknown[] = [];
-  private storedTokens: Map<string, unknown> = new Map();
-  private trades: Map<string, any[]> = new Map();
-  private positions: Map<string, any[]> = new Map();
-  private portfolios: Map<string, unknown> = new Map();
-
+  private riskEvents: {
+    portfolioId?: string;
+    signalId?: string;
+    eventType: string;
+    rejectionCode?: string;
+    reason: string;
+    details?: unknown;
+  }[] = [];
+  private providerHealth: {
+    providerName: string;
+    status: string;
+    latencyMs?: number;
+    message?: string;
+    checked_at?: string;
+  }[] = [];
+  private wallets: Map<string, WalletProfile> = new Map();
+  private transactions: ParsedTransactionRecord[] = [];
+  private storedTokens: Map<string, TokenMarketData> = new Map();
+  private trades: Map<string, PaperTradeRecord[]> = new Map();
+  private positions: Map<string, PaperPosition[]> = new Map();
+  private portfolios: Map<string, PaperPortfolio> = new Map();
+  private strategyDecisions: StrategyDecisionRecord[] = [];
+  private strategyEquitySnapshots: Map<string, StrategyEquitySnapshot[]> = new Map();
+  private checkpoints: Map<string, { lastSignature: string; lastSlot: number }> = new Map();
 
   public async init(): Promise<void> {}
-  public async checkHealth(): Promise<{ isConnected: boolean; message?: string; latencyMs?: number; }> { return { isConnected: true, latencyMs: 0 }; }
-  public async getPortfolio(id: string): Promise<unknown> { return this.portfolios.get(id) || null; }
 
-  public async savePortfolio(portfolio: unknown): Promise<void> { this.portfolios.set(portfolio.id, { ...portfolio }); }
-  public async getPortfolios(): Promise<unknown[]> { return Array.from(this.portfolios.values()); }
-  public async savePosition(position: unknown): Promise<void> {
+  public async checkHealth(): Promise<{ isConnected: boolean; message?: string; latencyMs?: number }> {
+    return { isConnected: true, latencyMs: 0 };
+  }
+
+  public async getPortfolio(id: string): Promise<PaperPortfolio | null> {
+    const p = this.portfolios.get(id);
+    return p ? { ...p } : null;
+  }
+
+  public async savePortfolio(portfolio: PaperPortfolio): Promise<void> {
+    this.portfolios.set(portfolio.id, { ...portfolio });
+  }
+
+  public async getPortfolios(): Promise<PaperPortfolio[]> {
+    return Array.from(this.portfolios.values()).map(p => ({ ...p }));
+  }
+
+  public async savePosition(position: PaperPosition): Promise<void> {
     const list = this.positions.get(position.portfolioId) || [];
     const idx = list.findIndex(p => p.id === position.id);
-    if (idx >= 0) list[idx] = { ...position }; else list.push({ ...position });
+    if (idx >= 0) {
+      list[idx] = { ...position };
+    } else {
+      list.push({ ...position });
+    }
     this.positions.set(position.portfolioId, list);
   }
+
   public async removePosition(positionId: string): Promise<void> {
     for (const [portId, list] of Array.from(this.positions.entries())) {
       this.positions.set(portId, list.filter(p => p.id !== positionId));
     }
   }
-  public async getOpenPositions(portfolioId: string): Promise<unknown[]> { return (this.positions.get(portfolioId) || []).map(p => ({ ...p })); }
-  public async saveTrade(trade: unknown): Promise<void> {
+
+  public async getOpenPositions(portfolioId: string): Promise<PaperPosition[]> {
+    return (this.positions.get(portfolioId) || []).map(p => ({ ...p }));
+  }
+
+  public async saveTrade(trade: PaperTradeRecord): Promise<void> {
     const list = this.trades.get(trade.portfolioId) || [];
     list.unshift({ ...trade });
     this.trades.set(trade.portfolioId, list);
   }
-  public async getTrades(portfolioId: string): Promise<unknown[]> { return (this.trades.get(portfolioId) || []).map(t => ({ ...t })); }
-  public async saveSignal(signal: unknown): Promise<void> { this.signals.set(signal.id, { ...signal }); }
-  public async getSignals(_limit?: number): Promise<unknown[]> { return Array.from(this.signals.values()); }
-  public async getTransactions(limit: number = 100): Promise<unknown[]> { return this.transactions.slice(0, limit); }
-  public async getTransactionsForToken(_tokenAddress: string, _fromTimestamp?: string, _toTimestamp?: string): Promise<unknown[]> { return []; }
-  public async saveToken(token: unknown): Promise<void> { this.storedTokens.set(token.address, { ...token }); }
-  public async getTokens(): Promise<unknown[]> { return Array.from(this.storedTokens.values()); }
-  public async saveProviderHealth(record: unknown): Promise<void> { this.providerHealth.unshift({ ...record, checked_at: new Date().toISOString() }); }
-  public async saveRiskEvent(event: unknown): Promise<void> {}
-  public async saveStrategyDecision(record: StrategyDecisionRecord): Promise<void> {}
-  public async getStrategyDecisions(_limit?: number): Promise<StrategyDecisionRecord[]> { return []; }
-  public async getStrategyDecisionsForStrategy(_strategyKey: string, _limit?: number): Promise<StrategyDecisionRecord[]> { return []; }
-  public async getStrategyDecisionsForSignal(_signalId: string): Promise<StrategyDecisionRecord[]> { return []; }
-  public async saveStrategyEquitySnapshot(snapshot: StrategyEquitySnapshot): Promise<void> {}
-  public async getStrategyEquitySnapshots(_strategyKey: string, _limit?: number): Promise<StrategyEquitySnapshot[]> { return []; }
-  public async saveWallet(wallet: unknown): Promise<void> {}
-  public async getWallets(_limit?: number): Promise<unknown[]> { return []; }
-  public async saveTransaction(tx: unknown): Promise<void> {}
-  public async saveTransactionsBatch(txs: unknown[]): Promise<void> {}
+
+  public async getTrades(portfolioId: string): Promise<PaperTradeRecord[]> {
+    return (this.trades.get(portfolioId) || []).map(t => ({ ...t }));
+  }
+
+  public async saveSignal(signal: AlphaSignal): Promise<void> {
+    this.signals.set(signal.id, { ...signal });
+  }
+
+  public async getSignals(limit: number = 50): Promise<AlphaSignal[]> {
+    return Array.from(this.signals.values()).slice(0, limit);
+  }
+
+  public async saveRiskEvent(event: {
+    portfolioId?: string;
+    signalId?: string;
+    eventType: string;
+    rejectionCode?: string;
+    reason: string;
+    details?: unknown;
+  }): Promise<void> {
+    this.riskEvents.unshift({ ...event });
+  }
+
+  public async saveWallet(wallet: WalletProfile): Promise<void> {
+    this.wallets.set(wallet.address, { ...wallet });
+  }
+
+  public async getWallets(): Promise<WalletProfile[]> {
+    return Array.from(this.wallets.values()).map(w => ({ ...w }));
+  }
+
+  public async saveTransaction(tx: ParsedTransactionRecord): Promise<void> {
+    this.transactions.unshift({ ...tx });
+  }
+
+  public async saveTransactionsBatch(txs: ParsedTransactionRecord[]): Promise<void> {
+    for (const tx of txs) {
+      await this.saveTransaction(tx);
+    }
+  }
+
+  public async getTransactions(limit: number = 100): Promise<ParsedTransactionRecord[]> {
+    return this.transactions.slice(0, limit).map(t => ({ ...t }));
+  }
+
+  public async getTransactionsForToken(
+    tokenAddress: string,
+    fromTimestamp?: string,
+    toTimestamp?: string
+  ): Promise<ParsedTransactionRecord[]> {
+    const lower = tokenAddress.toLowerCase();
+    return this.transactions.filter(t => {
+      const match = (t.tokenInAddress && t.tokenInAddress.toLowerCase() === lower) ||
+                    (t.tokenOutAddress && t.tokenOutAddress.toLowerCase() === lower);
+      if (!match) return false;
+      if (fromTimestamp && t.timestamp < fromTimestamp) return false;
+      if (toTimestamp && t.timestamp > toTimestamp) return false;
+      return true;
+    }).map(t => ({ ...t }));
+  }
+
+  public async saveToken(token: TokenMarketData): Promise<void> {
+    this.storedTokens.set(token.address, { ...token });
+  }
+
+  public async getTokens(): Promise<TokenMarketData[]> {
+    return Array.from(this.storedTokens.values()).map(t => ({ ...t }));
+  }
+
+  public async saveProviderHealth(record: {
+    providerName: string;
+    status: string;
+    latencyMs?: number;
+    message?: string;
+  }): Promise<void> {
+    this.providerHealth.unshift({ ...record, checked_at: new Date().toISOString() });
+  }
+
+  public async saveStrategyDecision(record: StrategyDecisionRecord): Promise<void> {
+    const idx = this.strategyDecisions.findIndex(d => d.strategyKey === record.strategyKey && d.signalId === record.signalId);
+    if (idx >= 0) {
+      this.strategyDecisions[idx] = { ...record };
+    } else {
+      this.strategyDecisions.unshift({ ...record });
+    }
+  }
+
+  public async getStrategyDecisions(limit: number = 100): Promise<StrategyDecisionRecord[]> {
+    return this.strategyDecisions.slice(0, limit).map(d => ({ ...d }));
+  }
+
+  public async getStrategyDecisionsForStrategy(strategyKey: string, limit: number = 100): Promise<StrategyDecisionRecord[]> {
+    return this.strategyDecisions.filter(d => d.strategyKey === strategyKey).slice(0, limit).map(d => ({ ...d }));
+  }
+
+  public async getStrategyDecisionsForSignal(signalId: string): Promise<StrategyDecisionRecord[]> {
+    return this.strategyDecisions.filter(d => d.signalId === signalId).map(d => ({ ...d }));
+  }
+
+  public async saveStrategyEquitySnapshot(snapshot: StrategyEquitySnapshot): Promise<void> {
+    const list = this.strategyEquitySnapshots.get(snapshot.strategyKey) || [];
+    list.push({ ...snapshot });
+    this.strategyEquitySnapshots.set(snapshot.strategyKey, list);
+  }
+
+  public async getStrategyEquitySnapshots(strategyKey: string, limit: number = 1000): Promise<StrategyEquitySnapshot[]> {
+    const list = this.strategyEquitySnapshots.get(strategyKey) || [];
+    return list.slice(0, limit).map(s => ({ ...s }));
+  }
+
+  public async getIngestionCheckpoint(sourceKey: string): Promise<{ lastSignature: string; lastSlot: number } | null> {
+    const cp = this.checkpoints.get(sourceKey);
+    return cp ? { ...cp } : null;
+  }
+
+  public async saveIngestionCheckpoint(sourceKey: string, signature: string, slot: number): Promise<void> {
+    this.checkpoints.set(sourceKey, { lastSignature: signature, lastSlot: slot });
+  }
 }
 
 /**

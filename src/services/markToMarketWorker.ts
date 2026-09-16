@@ -2,6 +2,7 @@ import { PaperPortfolio, PaperPosition, PaperTradeRecord, AlphaSignal, SystemSet
 import { RealDataProviders } from './realDataProviders';
 import { StorageAdapter } from './persistence';
 import { RiskEngine } from './riskEngine';
+import { getErrorMessage } from '../utils/errors';
 
 export class MarkToMarketWorker {
   /**
@@ -230,7 +231,7 @@ export class MarkToMarketWorker {
     }
 
     // 2. Determine trade position size
-    const posPercent = signal.alphaScore >= 92 
+    const posPercent = (signal.alphaScore !== null && signal.alphaScore >= 92) 
       ? (settings.strongSignalPositionPercent || 2.0) 
       : (settings.normalPositionPercent || 1.0);
     const positionSizeUsd = (portfolio.totalEquityUsd * posPercent) / 100;
@@ -271,7 +272,7 @@ export class MarkToMarketWorker {
       if (process.env.APP_MODE === 'live_paper') {
         return {
           success: false,
-          rejectionReason: `Executable Jupiter quote unavailable in live paper mode: ${(err as unknown).message}`,
+          rejectionReason: `Executable Jupiter quote unavailable in live paper mode: ${getErrorMessage(err)}`,
           rejectionCode: 'PROVIDER_UNAVAILABLE'
         };
       }

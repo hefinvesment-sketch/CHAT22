@@ -1,5 +1,5 @@
 import { WalletProfile, SystemSettings } from '../types';
-import { HeliusTransactionParser } from './heliusParser';
+import { HeliusTransactionParser, ParsedTransactionRecord } from './heliusParser';
 import { WalletPnLEngine } from './walletPnLEngine';
 import { StorageAdapter } from './persistence';
 
@@ -27,7 +27,7 @@ export class WalletDiscoveryService {
     };
 
     // 1. Extract unique active wallets from transactions
-    const walletTxMap: Map<string, unknown[]> = new Map();
+    const walletTxMap: Map<string, ParsedTransactionRecord[]> = new Map();
     for (const tx of rawTransactions) {
       const parsed = HeliusTransactionParser.parseTransaction(tx);
       if (parsed.walletAddress && parsed.walletAddress !== 'UNKNOWN_WALLET') {

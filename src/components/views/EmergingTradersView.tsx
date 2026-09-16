@@ -21,8 +21,8 @@ export const EmergingTradersView: React.FC<EmergingTradersViewProps> = ({
 }) => {
   // Wallets sorted by emergingAlphaScore with positive trajectory
   const emergingWallets = [...wallets]
-    .filter(w => w.emergingAlphaScore >= 75)
-    .sort((a, b) => b.emergingAlphaScore - a.emergingAlphaScore);
+    .filter(w => (w.emergingAlphaScore ?? 0) >= 75)
+    .sort((a, b) => (b.emergingAlphaScore ?? 0) - (a.emergingAlphaScore ?? 0));
 
   return (
     <div className="space-y-4 p-4 font-mono select-none">
@@ -56,7 +56,8 @@ export const EmergingTradersView: React.FC<EmergingTradersViewProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {emergingWallets.map(w => {
-          const delta = w.rollingScores.sevenDay - w.rollingScores.ninetyDay;
+          const rolling = w.rollingScores || { sevenDay: 0, fourteenDay: 0, thirtyDay: 0, sixtyDay: 0, ninetyDay: 0, oneEightyDay: 0, lifetime: 0 };
+          const delta = rolling.sevenDay - rolling.ninetyDay;
           return (
             <div key={w.address} className="bg-zinc-900/80 border border-zinc-800 rounded p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -83,23 +84,23 @@ export const EmergingTradersView: React.FC<EmergingTradersViewProps> = ({
                 <div className="grid grid-cols-5 gap-1 text-center font-mono">
                   <div className="p-1 rounded bg-zinc-900">
                     <div className="text-[9px] text-zinc-400">90d</div>
-                    <div className="font-bold text-zinc-300">{w.rollingScores.ninetyDay}</div>
+                    <div className="font-bold text-zinc-300">{rolling.ninetyDay}</div>
                   </div>
                   <div className="p-1 rounded bg-zinc-900">
                     <div className="text-[9px] text-zinc-400">60d</div>
-                    <div className="font-bold text-zinc-300">{w.rollingScores.sixtyDay}</div>
+                    <div className="font-bold text-zinc-300">{rolling.sixtyDay}</div>
                   </div>
                   <div className="p-1 rounded bg-zinc-900">
                     <div className="text-[9px] text-zinc-400">30d</div>
-                    <div className="font-bold text-zinc-200">{w.rollingScores.thirtyDay}</div>
+                    <div className="font-bold text-zinc-200">{rolling.thirtyDay}</div>
                   </div>
                   <div className="p-1 rounded bg-zinc-900">
                     <div className="text-[9px] text-zinc-400">14d</div>
-                    <div className="font-bold text-emerald-400">{w.rollingScores.fourteenDay}</div>
+                    <div className="font-bold text-emerald-400">{rolling.fourteenDay}</div>
                   </div>
                   <div className="p-1 rounded bg-emerald-950/80 border border-emerald-500/40">
                     <div className="text-[9px] text-emerald-400">7d</div>
-                    <div className="font-bold text-emerald-300">{w.rollingScores.sevenDay}</div>
+                    <div className="font-bold text-emerald-300">{rolling.sevenDay}</div>
                   </div>
                 </div>
               </div>

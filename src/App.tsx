@@ -29,6 +29,7 @@ import {
   LiveEventItem,
   MarketRegime 
 } from './types';
+import { getErrorMessage } from './utils/errors';
 import { Activity, CheckCircle2, RefreshCw, Server, AlertCircle } from 'lucide-react';
 
 const EMPTY_PORTFOLIO: PaperPortfolio = {
@@ -125,7 +126,7 @@ export default function App() {
         setIsInitializing(false);
       } catch (err: unknown) {
         if (!isMounted) return;
-        console.warn('[Real State Sync]:', err.message);
+        console.warn('[Real State Sync]:', getErrorMessage(err));
       }
     };
 
@@ -164,7 +165,7 @@ export default function App() {
         showToast(`Trade Error: ${data.error}`);
       }
     } catch (err: unknown) {
-      showToast(`Execution Error: ${err.message}`);
+      showToast(`Execution Error: ${getErrorMessage(err)}`);
     }
   };
 
@@ -186,7 +187,7 @@ export default function App() {
         showToast(`Close Error: ${data.error}`);
       }
     } catch (err: unknown) {
-      showToast(`Close Error: ${err.message}`);
+      showToast(`Close Error: ${getErrorMessage(err)}`);
     }
   };
 
@@ -202,7 +203,7 @@ export default function App() {
         showToast('Portfolio reset to $5,000.00 base capital');
       }
     } catch (err: unknown) {
-      showToast(`Reset Error: ${err.message}`);
+      showToast(`Reset Error: ${getErrorMessage(err)}`);
     }
   };
 
@@ -252,7 +253,7 @@ export default function App() {
           </div>
 
           <div className="hidden lg:flex items-center gap-3 text-[11px] font-mono">
-            {providers.slice(0, 4).map(p => (
+            {(providers as Array<{ providerName: string; status: string }>).slice(0, 4).map(p => (
               <span key={p.providerName} className="flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${p.status === 'CONNECTED' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
                 <span className="text-zinc-400">{p.providerName}:</span>
@@ -283,7 +284,7 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onSelectTab={(tab) => setActiveTab(tab)}
-          liveSignalCount={signals.filter(s => s.alphaScore >= 85).length}
+          liveSignalCount={signals.filter(s => (s.alphaScore ?? 0) >= 85).length}
           openPositionCount={openPositions.length}
         />
 
@@ -299,7 +300,7 @@ export default function App() {
               parallelBots={parallelBots}
               onSelectSignal={(sig) => setSelectedSignal(sig)}
               onExecuteTrade={handleExecuteTrade}
-              onNavigateToTab={(t) => setActiveTab(t)}
+              onNavigateToTab={(t) => setActiveTab(t as TabKey)}
             />
           )}
 

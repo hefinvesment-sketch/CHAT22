@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { StorageAdapter } from './persistence';
 import { RealDataProviders } from './realDataProviders';
+import { getErrorMessage } from '../utils/errors';
 
 export const MIN_STRATEGY_SAMPLE_TRADES = 20;
 
@@ -540,7 +541,7 @@ export class StrategyLabEngine {
       // Check Strategy-Specific Eligibility
       const elig = def.eligibilityRules;
 
-      if (signal.alphaScore < elig.minAlphaScore) {
+      if (signal.alphaScore === null || signal.alphaScore < elig.minAlphaScore) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
@@ -550,7 +551,9 @@ export class StrategyLabEngine {
           allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Alpha score (${signal.alphaScore}) is below strategy threshold (${elig.minAlphaScore}).`,
+          reason: signal.alphaScore === null
+            ? `Alpha score is null (insufficient data). Required >= ${elig.minAlphaScore}.`
+            : `Alpha score (${signal.alphaScore}) is below strategy threshold (${elig.minAlphaScore}).`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -600,7 +603,7 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (signal.independentEliteCount < elig.minIndependentWallets) {
+      if ((signal.independentEliteCount ?? 0) < elig.minIndependentWallets) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
@@ -610,7 +613,7 @@ export class StrategyLabEngine {
           allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Independent consensus count (${signal.independentEliteCount}) below required (${elig.minIndependentWallets}).`,
+          reason: `Independent consensus count (${signal.independentEliteCount ?? 0}) below required (${elig.minIndependentWallets}).`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -640,7 +643,7 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (elig.maxPriceDisplacementPercent && signal.priceDisplacementFromVwapPercent > elig.maxPriceDisplacementPercent) {
+      if (elig.maxPriceDisplacementPercent && signal.priceDisplacementFromVwapPercent !== null && signal.priceDisplacementFromVwapPercent > elig.maxPriceDisplacementPercent) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
@@ -660,7 +663,7 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (elig.allowedRegimes && elig.allowedRegimes.length > 0 && !elig.allowedRegimes.includes(signal.currentRegime)) {
+      if (elig.allowedRegimes && elig.allowedRegimes.length > 0 && (!signal.currentRegime || !elig.allowedRegimes.includes(signal.currentRegime))) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
@@ -670,7 +673,7 @@ export class StrategyLabEngine {
           allocatedPositionUsd: null,
           signalId: signal.id,
           decision: 'REJECTED',
-          reason: `Current market regime '${signal.currentRegime}' does not match allowed regimes: [${elig.allowedRegimes.join(', ')}].`,
+          reason: `Current market regime '${signal.currentRegime || 'UNKNOWN'}' does not match allowed regimes: [${elig.allowedRegimes.join(', ')}].`,
           evaluatedAt: new Date().toISOString(),
           alphaScore: signal.alphaScore,
           featureSnapshot: { ...signal.features }
@@ -680,7 +683,7 @@ export class StrategyLabEngine {
         continue;
       }
 
-      if (elig.requiresConsensus && signal.independentEliteCount < 3) {
+      if (elig.requiresConsensus && (signal.independentEliteCount ?? 0) < 3) {
         const record: StrategyDecisionRecord = {
           id: decisionId,
           strategyKey: def.key,
@@ -875,7 +878,7 @@ export class StrategyLabEngine {
           allocatedPositionUsd: null,
             signalId: signal.id,
             decision: 'WATCHED',
-            reason: `Executable Jupiter quote failed: ${err.message}`,
+            reason: `Executable Jupiter quote failed: ${getErrorMessage(err)}`,
             evaluatedAt: new Date().toISOString(),
             alphaScore: signal.alphaScore,
             featureSnapshot: { ...signal.features }
@@ -1035,7 +1038,7 @@ export class StrategyLabEngine {
               }
             } catch (err: unknown) {
               // Exit quote unavailable; keep position open with UNAVAILABLE exit flag
-              console.warn(`[StrategyLab]: Exit quote unavailable for ${pos.tokenSymbol}: ${err.message}`);
+              console.warn(`[StrategyLab]: Exit quote unavailable for ${pos.tokenSymbol}: ${getErrorMessage(err)}`);
               remainingPositions.push(pos);
               totalPositionsValue += currentValue;
               totalUnrealizedPnl += unrealizedPnl;
@@ -1128,7 +1131,9 @@ export class StrategyLabEngine {
       // Calculate Real Drawdown
       const peakEquity = portfolio.equityHistory.reduce((max, point) => Math.max(max, point.equity), portfolio.startingCapitalUsd);
       const currentDrawdown = peakEquity > 0 ? ((totalEquity - peakEquity) / peakEquity) * 100 : 0;
-      portfolio.maxDrawdownPercent = Math.min(portfolio.maxDrawdownPercent, currentDrawdown);
+      portfolio.maxDrawdownPercent = portfolio.maxDrawdownPercent === null 
+        ? currentDrawdown 
+        : Math.min(portfolio.maxDrawdownPercent, currentDrawdown);
 
       // Append equity point if changed
       const lastPoint = portfolio.equityHistory.length > 0 ? portfolio.equityHistory[portfolio.equityHistory.length - 1] : null;

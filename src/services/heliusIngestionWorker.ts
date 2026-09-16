@@ -6,6 +6,7 @@ import { AlphaEngine } from './alphaEngine';
 import { RealisticSolanaExecutionSimulator } from './providers';
 import { RealDataProviders } from './realDataProviders';
 import { RedisClientService } from './redisClient';
+import { getErrorMessage } from '../utils/errors';
 import { 
   AlphaSignal, AlphaSignalFeatureBreakdown, FeatureEvidence, 
   TokenMarketData, 
@@ -138,7 +139,7 @@ export class HeliusIngestionWorker {
       // Filter out already processed signatures (using local cache & Upstash Redis)
       const newSigs: string[] = [];
       for (const item of rawSignatures) {
-        const sig = item.signature;
+        const sig = typeof item === 'object' && item !== null && 'signature' in item ? (item as { signature?: string }).signature : undefined;
         if (!sig || this.processedSignatures.has(sig)) continue;
 
         // Check Redis cache
@@ -234,13 +235,13 @@ export class HeliusIngestionWorker {
 
       // Emit live ingestion event
       const sampleTx = parsedRecords[0];
-      const tradeSummary = `${sampleTx.tradeDirection} ${sampleTx.tokenOutSymbol || sampleTx.tokenInSymbol} ($${Math.round(sampleTx.usdValue).toLocaleString()})`;
+      const tradeSummary = sampleTx ? `${sampleTx.tradeDirection} ${sampleTx.tokenOutSymbol || sampleTx.tokenInSymbol} ($${Math.round(sampleTx.usdValue).toLocaleString()})` : '';
       const ingestionEvent: LiveEventItem = {
         id: `ev-tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         timestamp: new Date().toLocaleTimeString(),
-        category: sampleTx.tradeDirection === 'SELL' ? 'SMART_SELL' : 'SMART_BUY',
-        headline: `On-Chain Ingestion: ${sampleTx.dex}`,
-        detail: `Verified block transaction ${sampleTx.signature.slice(0, 8)}... by ${sampleTx.walletAddress.slice(0, 6)}: ${tradeSummary}`,
+        category: sampleTx?.tradeDirection === 'SELL' ? 'SMART_SELL' : 'SMART_BUY',
+        headline: `On-Chain Ingestion: ${sampleTx?.dex || 'DEX'}`,
+        detail: sampleTx ? `Verified block transaction ${sampleTx.signature.slice(0, 8)}... by ${sampleTx.walletAddress.slice(0, 6)}: ${tradeSummary}` : 'Verified block transaction batch',
         badgeType: 'info'
       };
 
@@ -420,7 +421,7 @@ export class HeliusIngestionWorker {
         });
       }
     } catch (err: unknown) {
-      console.warn('[HeliusIngestionWorker] Error in poll cycle:', err.message);
+      console.warn('[HeliusIngestionWorker] Error in poll cycle:', getErrorMessage(err));
     } finally {
       this.isPolling = false;
     }

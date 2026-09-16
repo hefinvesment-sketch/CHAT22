@@ -62,10 +62,13 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {tokens.slice(1, 4).map((tok, idx) => {
           const mult = timeframeMultipliers[selectedTimeframe];
-          const flowTf = tok.netFlow24hUsd * mult;
-          const velocity = Math.min(99, Math.round(50 + (tok.netFlow24hUsd / 800000) * 3));
-          const acceleration = Math.min(99, Math.round(45 + (tok.netFlow24hUsd / 600000) * 4));
-          const displacement = Number((((tok.priceUsd - tok.smartMoneyVwap) / tok.smartMoneyVwap) * 100).toFixed(2));
+          const netFlow = tok.netFlow24hUsd ?? 0;
+          const flowTf = netFlow * mult;
+          const velocity = Math.min(99, Math.round(50 + (netFlow / 800000) * 3));
+          const acceleration = Math.min(99, Math.round(45 + (netFlow / 600000) * 4));
+          const vwap = tok.smartMoneyVwap ?? 0;
+          const price = tok.priceUsd ?? 0;
+          const displacement = vwap > 0 ? Number((((price - vwap) / vwap) * 100).toFixed(2)) : 0;
 
           return (
             <div key={tok.address || `${tok.symbol}-${idx}`} className="bg-zinc-900/80 border border-zinc-800 rounded p-3.5 space-y-2">
@@ -152,10 +155,13 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
             ) : (
               tokens.map((tok, idx) => {
               const mult = timeframeMultipliers[selectedTimeframe];
-              const flowTf = tok.netFlow24hUsd * mult;
-              const velocity = Math.min(99, Math.round(50 + (tok.netFlow24hUsd / 800000) * 3));
-              const acceleration = Math.min(99, Math.round(45 + (tok.netFlow24hUsd / 600000) * 4));
-              const displacement = Number((((tok.priceUsd - tok.smartMoneyVwap) / tok.smartMoneyVwap) * 100).toFixed(2));
+              const netFlow = tok.netFlow24hUsd ?? 0;
+              const flowTf = netFlow * mult;
+              const velocity = Math.min(99, Math.round(50 + (netFlow / 800000) * 3));
+              const acceleration = Math.min(99, Math.round(45 + (netFlow / 600000) * 4));
+              const vwap = tok.smartMoneyVwap ?? 0;
+              const price = tok.priceUsd ?? 0;
+              const displacement = vwap > 0 ? Number((((price - vwap) / vwap) * 100).toFixed(2)) : 0;
               const isPositive = flowTf >= 0;
 
               return (
@@ -165,7 +171,7 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
                     <div className="text-[10px] text-zinc-400 font-normal">{tok.name}</div>
                   </td>
                   <td className="py-2.5 font-semibold text-zinc-200">${tok.priceUsd}</td>
-                  <td className="py-2.5 text-zinc-400 font-mono">${tok.smartMoneyVwap}</td>
+                  <td className="py-2.5 text-zinc-400 font-mono">${tok.smartMoneyVwap ?? 0}</td>
                   <td className="py-2.5">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                       displacement > 3.0 ? 'bg-rose-950/60 text-rose-300' : 'bg-emerald-950/60 text-emerald-300'
@@ -193,8 +199,8 @@ export const SmartMoneyFlowView: React.FC<SmartMoneyFlowViewProps> = ({ tokens }
                       {acceleration} / 100
                     </span>
                   </td>
-                  <td className="py-2.5 text-zinc-300 font-mono">${(tok.liquidityUsd / 1000000).toFixed(1)}M</td>
-                  <td className="py-2.5 text-zinc-200 font-semibold">{Math.floor(tok.holderCount / 12000) + 3} Elite</td>
+                  <td className="py-2.5 text-zinc-300 font-mono">${((tok.liquidityUsd ?? 0) / 1000000).toFixed(1)}M</td>
+                  <td className="py-2.5 text-zinc-200 font-semibold">{Math.floor((tok.holderCount ?? 0) / 12000) + 3} Elite</td>
                 </tr>
               );
             }))}

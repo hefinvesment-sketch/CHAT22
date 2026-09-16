@@ -121,8 +121,9 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
               </tr>
             ) : (
               filteredSignals.map(sig => {
-                const isHighConviction = sig.alphaScore >= 92;
-                const isEligible = sig.alphaScore >= 85;
+                const score = sig.alphaScore ?? 0;
+                const isHighConviction = score >= 92;
+                const isEligible = score >= 85;
 
                 return (
                   <tr key={sig.id} className="hover:bg-zinc-800/40 transition-colors">
@@ -133,9 +134,9 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
                   <td className="py-3">
                     <div className="flex items-center gap-1.5">
                       <span className={`text-base font-bold ${
-                        isHighConviction ? 'text-emerald-400' : isEligible ? 'text-emerald-400' : sig.alphaScore >= 70 ? 'text-cyan-300' : 'text-zinc-400'
+                        isHighConviction ? 'text-emerald-400' : isEligible ? 'text-emerald-400' : score >= 70 ? 'text-cyan-300' : 'text-zinc-400'
                       }`}>
-                        {sig.alphaScore}
+                        {sig.alphaScore ?? 'N/A'}
                       </span>
                       <span className="text-[10px] text-zinc-400">/ 100</span>
                     </div>
@@ -146,18 +147,18 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
                     <span className="font-semibold text-zinc-200">{sig.independentEliteCount} Wallets</span>
                   </td>
                   <td className="py-3 text-zinc-300 font-semibold">
-                    ${(sig.totalSmartMoneyInflowUsd / 1000).toFixed(0)}k
+                    ${((sig.totalSmartMoneyInflowUsd ?? 0) / 1000).toFixed(0)}k
                   </td>
                   <td className="py-3">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                      sig.priceDisplacementFromVwapPercent > 3.0 ? 'bg-rose-950/60 text-rose-300' : 'bg-emerald-950/60 text-emerald-300'
+                      (sig.priceDisplacementFromVwapPercent ?? 0) > 3.0 ? 'bg-rose-950/60 text-rose-300' : 'bg-emerald-950/60 text-emerald-300'
                     }`}>
-                      +{sig.priceDisplacementFromVwapPercent}%
+                      +{sig.priceDisplacementFromVwapPercent ?? 0}%
                     </span>
                   </td>
                   <td className="py-3 font-semibold">
-                    <span className={sig.historicalExpectancy.netEvPercent > 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                      {sig.historicalExpectancy.netEvPercent > 0 ? '+' : ''}{sig.historicalExpectancy.netEvPercent}%
+                    <span className={(sig.historicalExpectancy?.netEvPercent ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      {(sig.historicalExpectancy?.netEvPercent ?? 0) > 0 ? '+' : ''}{sig.historicalExpectancy?.netEvPercent ?? 0}%
                     </span>
                   </td>
                   <td className="py-3 text-right">
@@ -230,39 +231,39 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">18% Trader Skill</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.traderSkillScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.traderSkillScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">15% Copyability</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.copyabilityScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.copyabilityScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">15% Independent Consensus</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.independentConsensusScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.independentConsensusScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">12% Conviction Surprise</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.convictionSurpriseScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.convictionSurpriseScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">10% Smart-Money Acceleration</div>
-                  <div className="text-base font-bold text-emerald-400">{selectedSignal.features.smartMoneyAccelerationScore} / 100</div>
+                  <div className="text-base font-bold text-emerald-400">{selectedSignal.features.smartMoneyAccelerationScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">10% Entry Quality</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.entryQualityScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.entryQualityScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">8% Token Liquidity</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.liquidityTokenQualityScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.liquidityTokenQualityScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">7% Market Regime Fit</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.regimeFitScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.regimeFitScore?.value ?? 0} / 100</div>
                 </div>
                 <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
                   <div className="text-[10px] text-zinc-400">5% Emerging Trader Signal</div>
-                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.emergingTraderScore} / 100</div>
+                  <div className="text-base font-bold text-zinc-100">{selectedSignal.features.emergingTraderScore?.value ?? 0} / 100</div>
                 </div>
               </div>
             </div>
@@ -308,8 +309,8 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
                 </div>
                 <div className="flex justify-between border-t border-zinc-800 pt-1 font-bold">
                   <span className="text-zinc-300">Net Achievable EV:</span>
-                  <span className={selectedSignal.historicalExpectancy.netEvPercent > 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                    +{selectedSignal.historicalExpectancy.netEvPercent}%
+                  <span className={(selectedSignal.historicalExpectancy?.netEvPercent ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                    {(selectedSignal.historicalExpectancy?.netEvPercent ?? 0) > 0 ? '+' : ''}{selectedSignal.historicalExpectancy?.netEvPercent ?? 0}%
                   </span>
                 </div>
               </div>

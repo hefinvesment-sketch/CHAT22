@@ -51,6 +51,7 @@ export class SmartMoneyFlowEngine {
 
     for (const wKey of windowKeys) {
       const windowMs = this.WINDOW_DURATIONS[wKey];
+      if (windowMs === undefined) continue;
       const cutoffTime = referenceTimeMs - windowMs;
 
       const windowTxs = relevantTxs.filter(

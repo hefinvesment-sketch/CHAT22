@@ -7,9 +7,8 @@ interface LiveEventTickerProps {
 }
 
 export const LiveEventTicker: React.FC<LiveEventTickerProps> = ({ events }) => {
-  if (!events || events.length === 0) return null;
-
-  const latest = events[0];
+  const latest = events && events.length > 0 ? events[0] : null;
+  if (!latest) return null;
 
   const getBadge = (category: LiveEventItem['category']) => {
     switch (category) {

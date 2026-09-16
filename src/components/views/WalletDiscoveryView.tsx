@@ -28,7 +28,7 @@ export const WalletDiscoveryView: React.FC<WalletDiscoveryViewProps> = ({
 
   const filteredWallets = wallets.filter(w => {
     if (filterEligibleOnly && !w.isEligibleSmartMoney) return false;
-    if (w.qualityScore < minScore) return false;
+    if ((w.qualityScore ?? 0) < minScore) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchAddr = w.address.toLowerCase().includes(q);
@@ -137,8 +137,8 @@ export const WalletDiscoveryView: React.FC<WalletDiscoveryViewProps> = ({
                     </td>
                     <td className="py-3">
                       <div className="flex items-center gap-1">
-                        <span className={`text-base font-bold ${w.qualityScore >= 90 ? 'text-emerald-400' : w.qualityScore >= 75 ? 'text-cyan-300' : 'text-amber-400'}`}>
-                          {w.qualityScore}
+                        <span className={`text-base font-bold ${(w.qualityScore ?? 0) >= 90 ? 'text-emerald-400' : (w.qualityScore ?? 0) >= 75 ? 'text-cyan-300' : 'text-amber-400'}`}>
+                          {w.qualityScore ?? 'N/A'}
                         </span>
                         <span className="text-[10px] text-zinc-400">/ 100</span>
                       </div>
@@ -150,25 +150,25 @@ export const WalletDiscoveryView: React.FC<WalletDiscoveryViewProps> = ({
                       </div>
                     </td>
                   <td className="py-3 font-semibold text-zinc-200">
-                    ${(w.portfolioValueUsd / 1000).toFixed(0)}k
+                    ${((w.portfolioValueUsd ?? 0) / 1000).toFixed(0)}k
                   </td>
                   <td className="py-3">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                      w.coreAssetRatio >= 0.4 ? 'bg-emerald-950/60 text-emerald-300' : 'bg-rose-950/60 text-rose-300'
+                      (w.coreAssetRatio ?? 0) >= 0.4 ? 'bg-emerald-950/60 text-emerald-300' : 'bg-rose-950/60 text-rose-300'
                     }`}>
-                      {(w.coreAssetRatio * 100).toFixed(0)}%
+                      {w.coreAssetRatio != null ? `${(w.coreAssetRatio * 100).toFixed(0)}%` : 'N/A'}
                     </span>
                   </td>
                   <td className="py-3 font-bold text-emerald-400">
-                    +${(w.realizedPnlUsd / 1000).toFixed(0)}k
+                    {w.realizedPnlUsd != null ? `${w.realizedPnlUsd >= 0 ? '+' : ''}${(w.realizedPnlUsd / 1000).toFixed(0)}k` : 'N/A'}
                   </td>
-                  <td className="py-3 text-zinc-200 font-semibold">{w.winRate}%</td>
-                  <td className="py-3 text-zinc-200 font-semibold">{w.profitFactor.toFixed(2)}x</td>
+                  <td className="py-3 text-zinc-200 font-semibold">{w.winRate != null ? `${w.winRate}%` : 'N/A'}</td>
+                  <td className="py-3 text-zinc-200 font-semibold">{w.profitFactor != null ? `${w.profitFactor.toFixed(2)}x` : 'N/A'}</td>
                   <td className="py-3">
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                      w.top1TradeProfitPercent > 50 ? 'bg-rose-950/60 text-rose-400 border border-rose-800' : 'text-zinc-300'
+                      (w.top1TradeProfitPercent ?? 0) > 50 ? 'bg-rose-950/60 text-rose-400 border border-rose-800' : 'text-zinc-300'
                     }`}>
-                      {w.top1TradeProfitPercent}%
+                      {w.top1TradeProfitPercent != null ? `${w.top1TradeProfitPercent}%` : 'N/A'}
                     </span>
                   </td>
                   <td className="py-3">

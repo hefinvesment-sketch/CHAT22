@@ -1,5 +1,6 @@
 import { StorageAdapter } from './persistence';
 import { RedisClientService } from './redisClient';
+import { getErrorMessage } from '../utils/errors';
 
 export type ProviderStatus = 
   | 'CONNECTED'
@@ -109,7 +110,7 @@ export class RealDataProviders {
       }
       return { ok: false, latencyMs, error: json?.error?.message || 'Unhealthy RPC response' };
     } catch (err: unknown) {
-      return { ok: false, latencyMs: 0, error: err?.message || 'Unreachable' };
+      return { ok: false, latencyMs: 0, error: getErrorMessage(err) };
     }
   }
 
@@ -300,7 +301,7 @@ export class RealDataProviders {
         providerName: 'Helius',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: this.sanitizeMessage(err?.message || 'Helius connection unreachable'),
+        message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
       this.healthMap['Helius'] = record;
@@ -361,7 +362,7 @@ export class RealDataProviders {
         providerName: 'Birdeye',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: this.sanitizeMessage(err?.message),
+        message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
       this.healthMap['Birdeye'] = record;
@@ -455,7 +456,7 @@ export class RealDataProviders {
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs: fallbackProbe.latencyMs,
-          message: `Primary RPC error (${this.sanitizeMessage(err?.message)}); failover active via public Solana mainnet RPC.`,
+          message: `Primary RPC error (${this.sanitizeMessage(getErrorMessage(err))}); failover active via public Solana mainnet RPC.`,
           activeMode: mode
         };
         this.healthMap['Solana RPC'] = record;
@@ -466,7 +467,7 @@ export class RealDataProviders {
         providerName: 'Solana RPC',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: this.sanitizeMessage(err?.message),
+        message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
       this.healthMap['Solana RPC'] = record;
@@ -565,7 +566,7 @@ export class RealDataProviders {
         providerName: 'Jupiter',
         status: 'UNREACHABLE',
         lastChecked: new Date().toISOString(),
-        message: this.sanitizeMessage(err?.message),
+        message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
       this.healthMap['Jupiter'] = record;
@@ -579,7 +580,7 @@ export class RealDataProviders {
     outputMint: string,
     amountRaw: number,
     slippageBps: number = 50
-  ): Promise<unknown> {
+  ): Promise<JupiterQuoteRecord> {
     if (process.env.APP_MODE === 'live_paper' && process.env.LIVE_PAPER_EXECUTION_ENABLED !== 'true') {
       throw new Error('Jupiter execution blocked: LIVE_PAPER_EXECUTION_ENABLED is false');
     }
@@ -639,11 +640,11 @@ export class RealDataProviders {
         providerName: 'Jupiter',
         status: 'DEGRADED',
         lastChecked: new Date().toISOString(),
-        message: err.message
+        message: getErrorMessage(err)
       };
 
       if (mode !== 'demo') {
-        throw new Error(`PROVIDER FAILURE [Jupiter]: ${err.message}`);
+        throw new Error(`PROVIDER FAILURE [Jupiter]: ${getErrorMessage(err)}`);
       }
 
       // Demo fallback only
@@ -758,7 +759,7 @@ export class RealDataProviders {
       }
 
       if (mode !== 'demo') {
-        throw new Error(`PROVIDER FAILURE [Birdeye]: ${err.message}`);
+        throw new Error(`PROVIDER FAILURE [Birdeye]: ${getErrorMessage(err)}`);
       }
       return {
         tokenAddress,

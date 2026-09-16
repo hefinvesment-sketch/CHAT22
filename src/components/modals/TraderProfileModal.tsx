@@ -22,8 +22,44 @@ interface TraderProfileModalProps {
 export const TraderProfileModal: React.FC<TraderProfileModalProps> = ({ wallet, onClose }) => {
   if (!wallet) return null;
 
-  const genome = wallet.genome;
-  const copy = wallet.copyability;
+  const genome = wallet.genome || {
+    overallSkill: wallet.qualityScore ?? 50,
+    momentumSkill: 50,
+    swingTradingSkill: 50,
+    earlyEntrySkill: 50,
+    largeCapSkill: 50,
+    midCapSkill: 50,
+    smallCapSkill: 50,
+    solEcosystemSkill: 50,
+    memecoinSkill: 50,
+    riskOnSkill: 50,
+    riskOffSkill: 50,
+    highVolatilitySkill: 50,
+    lowVolatilitySkill: 50,
+    trendFollowingSkill: 50,
+    meanReversionSkill: 50,
+    exitSkill: 50,
+    entrySkill: 50,
+    drawdownControl: 50,
+    diversificationQuality: 50,
+    medianPositionPercent: 5,
+    medianHoldingTimeHours: 12,
+    bestMarketRegime: 'TRENDING_UP',
+    preferredMarketCap: 'MID_CAP'
+  };
+
+  const copy = wallet.copyability || {
+    copyabilityScore: 50,
+    copyEfficiency: 70,
+    sourceTraderReturn: 100,
+    achievableSimulatedReturn: 70,
+    latencyLossPercent: 10,
+    slippageLossPercent: 20,
+    averageDetectionLatencyMs: 1200,
+    averageSlippageBps: 45,
+    recommendation: 'MODERATE_VIABILITY' as const,
+    reasoning: 'Standard execution fidelity'
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -61,30 +97,30 @@ export const TraderProfileModal: React.FC<TraderProfileModalProps> = ({ wallet, 
           <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
             <div className="text-[10px] text-zinc-400 uppercase">Portfolio Value</div>
             <div className="text-base font-bold text-zinc-100 mt-0.5">
-              ${(wallet.portfolioValueUsd / 1000).toFixed(0)}k
+              ${wallet.portfolioValueUsd != null ? `${(wallet.portfolioValueUsd / 1000).toFixed(0)}k` : 'N/A'}
             </div>
             <div className="text-[10px] text-emerald-400 font-semibold">
-              {(wallet.coreAssetRatio * 100).toFixed(0)}% Core Assets
+              {wallet.coreAssetRatio != null ? `${(wallet.coreAssetRatio * 100).toFixed(0)}% Core Assets` : 'N/A'}
             </div>
           </div>
 
           <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
             <div className="text-[10px] text-zinc-400 uppercase">Realized P&L</div>
             <div className="text-base font-bold text-emerald-400 mt-0.5">
-              +${(wallet.realizedPnlUsd / 1000).toFixed(0)}k
+              {wallet.realizedPnlUsd != null ? `+${(wallet.realizedPnlUsd / 1000).toFixed(0)}k` : 'N/A'}
             </div>
             <div className="text-[10px] text-zinc-400">
-              Win Rate: {wallet.winRate}%
+              Win Rate: {wallet.winRate != null ? `${wallet.winRate}%` : 'N/A'}
             </div>
           </div>
 
           <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
             <div className="text-[10px] text-zinc-400 uppercase">Profit Factor</div>
             <div className="text-base font-bold text-zinc-100 mt-0.5">
-              {wallet.profitFactor.toFixed(2)}x
+              {wallet.profitFactor != null ? `${wallet.profitFactor.toFixed(2)}x` : 'N/A'}
             </div>
             <div className="text-[10px] text-zinc-400">
-              Max DD: {wallet.maxDrawdownPercent}%
+              Max DD: {wallet.maxDrawdownPercent != null ? `${wallet.maxDrawdownPercent}%` : 'N/A'}
             </div>
           </div>
 
@@ -111,10 +147,10 @@ export const TraderProfileModal: React.FC<TraderProfileModalProps> = ({ wallet, 
           <div className="p-2.5 rounded bg-zinc-950 border border-zinc-800">
             <div className="text-[10px] text-zinc-400 uppercase">Top 1 Trade Concentration</div>
             <div className="text-base font-bold text-zinc-100 mt-0.5">
-              {wallet.top1TradeProfitPercent}%
+              {wallet.top1TradeProfitPercent != null ? `${wallet.top1TradeProfitPercent}%` : 'N/A'}
             </div>
-            <div className={`text-[10px] ${wallet.concentrationPenalty > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-              Penalty: -{wallet.concentrationPenalty} pts
+            <div className={`text-[10px] ${(wallet.concentrationPenalty ?? 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+              Penalty: -{wallet.concentrationPenalty ?? 0} pts
             </div>
           </div>
         </div>
@@ -214,19 +250,19 @@ export const TraderProfileModal: React.FC<TraderProfileModalProps> = ({ wallet, 
             <div className="grid grid-cols-4 gap-2 text-center">
               <div className="p-1.5 rounded bg-zinc-900">
                 <div className="text-[10px] text-zinc-400">7-Day</div>
-                <div className="font-bold text-zinc-100">{wallet.rollingScores.sevenDay}</div>
+                <div className="font-bold text-zinc-100">{wallet.rollingScores?.sevenDay ?? 'N/A'}</div>
               </div>
               <div className="p-1.5 rounded bg-zinc-900">
                 <div className="text-[10px] text-zinc-400">30-Day</div>
-                <div className="font-bold text-zinc-100">{wallet.rollingScores.thirtyDay}</div>
+                <div className="font-bold text-zinc-100">{wallet.rollingScores?.thirtyDay ?? 'N/A'}</div>
               </div>
               <div className="p-1.5 rounded bg-zinc-900">
                 <div className="text-[10px] text-zinc-400">90-Day</div>
-                <div className="font-bold text-zinc-100">{wallet.rollingScores.ninetyDay}</div>
+                <div className="font-bold text-zinc-100">{wallet.rollingScores?.ninetyDay ?? 'N/A'}</div>
               </div>
               <div className="p-1.5 rounded bg-zinc-900">
                 <div className="text-[10px] text-zinc-400">Lifetime</div>
-                <div className="font-bold text-emerald-400">{wallet.rollingScores.lifetime}</div>
+                <div className="font-bold text-emerald-400">{wallet.rollingScores?.lifetime ?? 'N/A'}</div>
               </div>
             </div>
           </div>

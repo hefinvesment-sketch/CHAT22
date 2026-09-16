@@ -32,7 +32,7 @@ export const PaperPortfolioView: React.FC<PaperPortfolioViewProps> = ({
 }) => {
   const isTotalPos = portfolio.totalReturnPercent >= 0;
   const [showAuditModal, setShowAuditModal] = useState(false);
-  const [auditData, setAuditData] = useState<unknown>(null);
+  const [auditData, setAuditData] = useState<any>(null);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
 
   // Exact double-entry ledger equation verification
@@ -159,27 +159,27 @@ export const PaperPortfolioView: React.FC<PaperPortfolioViewProps> = ({
         <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800">
           <div className="text-[10px] text-zinc-400 uppercase">Win Rate / PF</div>
           <div className="text-lg font-bold text-zinc-100 mt-0.5">
-            {portfolio.winRatePercent.toFixed(1)}%
+            {portfolio.winRatePercent != null ? `${portfolio.winRatePercent.toFixed(1)}%` : 'N/A'}
           </div>
           <div className="text-[10px] text-emerald-400 font-semibold">
-            {portfolio.profitFactor.toFixed(2)}x Profit Factor
+            {portfolio.profitFactor != null ? `${portfolio.profitFactor.toFixed(2)}x Profit Factor` : 'N/A'}
           </div>
         </div>
 
         <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800">
           <div className="text-[10px] text-zinc-400 uppercase">Drawdown / Sharpe</div>
           <div className="text-lg font-bold text-zinc-100 mt-0.5">
-            {portfolio.maxDrawdownPercent.toFixed(2)}% Max DD
+            {portfolio.maxDrawdownPercent != null ? `${portfolio.maxDrawdownPercent.toFixed(2)}% Max DD` : 'N/A'}
           </div>
           <div className="text-[10px] text-cyan-400 font-semibold">
-            Sharpe: {portfolio.sharpeRatio.toFixed(2)}
+            Sharpe: {portfolio.sharpeRatio != null ? portfolio.sharpeRatio.toFixed(2) : 'N/A'}
           </div>
         </div>
 
         <div className="p-3 rounded bg-zinc-900/80 border border-zinc-800">
           <div className="text-[10px] text-zinc-400 uppercase">Execution Friction</div>
           <div className="text-lg font-bold text-zinc-200 mt-0.5">
-            {portfolio.averageSlippageBps} bps
+            {portfolio.averageSlippageBps ?? 0} bps
           </div>
           <div className="text-[10px] text-zinc-400">
             Fees Paid: ${portfolio.totalFeesPaidUsd.toFixed(2)}

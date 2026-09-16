@@ -1,4 +1,5 @@
 import { ParsedTransactionRecord } from './heliusParser';
+import { WalletCopyability } from '../types';
 
 export interface ReconstructedPosition {
   tokenAddress: string;
@@ -100,6 +101,7 @@ export class WalletPnLEngine {
 
         while (amountToSell > 0.000001 && list.length > 0) {
           const oldest = list[0];
+          if (!oldest) break;
           const matchAmount = Math.min(oldest.remainingAmount, amountToSell);
           const fraction = oldest.remainingAmount > 0 ? matchAmount / oldest.remainingAmount : 1;
           const costBasis = oldest.costBasisUsd * fraction;
@@ -204,12 +206,12 @@ export class WalletPnLEngine {
     // Medians
     const sortedWins = [...wins].map(t => t.realizedPnlUsd).sort((a, b) => a - b);
     const sortedLosses = [...losses].map(t => Math.abs(t.realizedPnlUsd)).sort((a, b) => a - b);
-    const medianWin = sortedWins.length > 0 ? sortedWins[Math.floor(sortedWins.length / 2)] : 0;
-    const medianLoss = sortedLosses.length > 0 ? sortedLosses[Math.floor(sortedLosses.length / 2)] : 0;
+    const medianWin = sortedWins.length > 0 ? (sortedWins[Math.floor(sortedWins.length / 2)] ?? 0) : 0;
+    const medianLoss = sortedLosses.length > 0 ? (sortedLosses[Math.floor(sortedLosses.length / 2)] ?? 0) : 0;
 
     const holdingTimes = trades.map(t => t.holdingTimeHours).sort((a, b) => a - b);
-    const avgHolding = holdingTimes.reduce((s, h) => s + h, 0) / holdingTimes.length;
-    const medianHolding = holdingTimes[Math.floor(holdingTimes.length / 2)];
+    const avgHolding = holdingTimes.length > 0 ? holdingTimes.reduce((s, h) => s + h, 0) / holdingTimes.length : 0;
+    const medianHolding = (holdingTimes.length > 0 ? holdingTimes[Math.floor(holdingTimes.length / 2)] : 0) ?? 0;
 
     // Max Drawdown calculation
     let cumulative = 0;

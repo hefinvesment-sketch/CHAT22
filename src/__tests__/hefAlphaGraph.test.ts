@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach } from 'vitest';
 import { HeliusTransactionParser } from '../services/heliusParser';
 import { WalletPnLEngine, ReconstructedTrade } from '../services/walletPnLEngine';
@@ -356,10 +355,11 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
           traderDeteriorationPenalty: 0,
           insufficientSamplePenalty: 0,
           profitConcentrationPenalty: 0
-        } as unknown,
+        },
         totalPenalties: 0
-      },
+      } as any,
       historicalExpectancy: {
+        dataStatus: 'VALID_SAMPLE',
         similarEventsCount: 20,
         winRatePercent: 70,
         averageWinnerPercent: 10,
@@ -459,10 +459,11 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
           traderDeteriorationPenalty: 0,
           insufficientSamplePenalty: 0,
           profitConcentrationPenalty: 0
-        } as unknown,
+        },
         totalPenalties: 0
-      },
+      } as any,
       historicalExpectancy: {
+        dataStatus: 'VALID_SAMPLE',
         similarEventsCount: 20,
         winRatePercent: 70,
         averageWinnerPercent: 10,
@@ -536,10 +537,11 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
           traderDeteriorationPenalty: 0,
           insufficientSamplePenalty: 0,
           profitConcentrationPenalty: 0
-        } as unknown,
+        },
         totalPenalties: 0
-      },
+      } as any,
       historicalExpectancy: {
+        dataStatus: 'VALID_SAMPLE',
         similarEventsCount: 20,
         winRatePercent: 70,
         averageWinnerPercent: 10,
@@ -662,7 +664,7 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
     await store.savePosition(position);
     const loadedPositions = await store.getOpenPositions(portfolio.id);
     expect(loadedPositions.length).toBe(1);
-    expect(loadedPositions[0].tokenSymbol).toBe('SOL');
+    expect(loadedPositions[0]!.tokenSymbol).toBe('SOL');
 
     await store.removePosition(position.id);
     const afterRemoval = await store.getOpenPositions(portfolio.id);

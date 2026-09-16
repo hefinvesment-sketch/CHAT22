@@ -239,6 +239,9 @@ export class PortfolioAccountingEngine {
     }
 
     const pos = openPositions[posIndex];
+    if (!pos) {
+      throw new Error(`Position ${positionId} not found in open positions`);
+    }
     const exitBreakdown = this.calculateExitProceeds(
       pos.amount,
       exitPrice,

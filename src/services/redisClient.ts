@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { getErrorMessage } from '../utils/errors';
 
 export class RedisClientService {
   private static instance: Redis | null = null;
@@ -122,7 +123,7 @@ export class RedisClientService {
       return {
         connected: false,
         latencyMs: 0,
-        message: `Redis ping failed: ${err?.message || 'Connection error'}`
+        message: `Redis ping failed: ${getErrorMessage(err)}`
       };
     }
   }
@@ -144,7 +145,7 @@ export class RedisClientService {
   public static async set(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
     try {
       const client = this.getClient();
-      if (!client) return null as unknown;
+      if (!client) return false;
       if (client.status === 'wait') await client.connect();
       if (ttlSeconds && ttlSeconds > 0) {
         await client.set(key, value, 'EX', ttlSeconds);

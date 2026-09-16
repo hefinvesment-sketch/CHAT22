@@ -11,7 +11,8 @@ function aistudioMediaPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (req.url && req.url.startsWith('/assets/aistudio/')) {
-          const rawPath = req.url.split('?')[0].split('#')[0];
+          const urlPart = req.url.split('?')[0] ?? '';
+          const rawPath = urlPart.split('#')[0] ?? '';
           try {
             const decodedPath = decodeURIComponent(rawPath);
             const relativePath = decodedPath.replace(/^\//, '');

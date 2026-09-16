@@ -13,6 +13,27 @@ export interface TokenMetadata {
   };
 }
 
+interface HeliusAssetResult {
+  content?: {
+    metadata?: {
+      symbol?: string;
+      name?: string;
+    };
+  };
+  token_info?: {
+    decimals?: number;
+    mint_authority?: string | null;
+    freeze_authority?: string | null;
+  };
+}
+
+interface BirdeyeTokenOverviewResult {
+  symbol?: string;
+  name?: string;
+  decimals?: number;
+  liquidity?: number | null;
+}
+
 export class TokenResolver {
   private static cache = new Map<string, { data: TokenMetadata; expiresAt: number }>();
   private static CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
@@ -25,7 +46,7 @@ export class TokenResolver {
 
     try {
       // 1. Helius DAS getAsset
-      const asset = await RealDataProviders.getHeliusAsset(address);
+      const asset = await RealDataProviders.getHeliusAsset(address) as HeliusAssetResult | null;
       if (asset) {
         const metadata: TokenMetadata = {
           address,
@@ -48,7 +69,7 @@ export class TokenResolver {
 
     try {
       // 2. Birdeye Fallback
-      const tokenInfo = await RealDataProviders.getBirdeyeTokenInfo(address);
+      const tokenInfo = await RealDataProviders.getBirdeyeTokenInfo(address) as BirdeyeTokenOverviewResult | null;
       if (tokenInfo) {
         const metadata: TokenMetadata = {
           address,
