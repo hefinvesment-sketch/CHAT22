@@ -3,6 +3,8 @@ import { StorageAdapter } from './persistence';
 import { HeliusTransactionParser, ParsedTransactionRecord } from './heliusParser';
 import { WalletDiscoveryService } from './walletDiscovery';
 import { RealDataProviders } from './realDataProviders';
+import { ReferencePriceService } from './referencePriceService';
+import { TokenEnrichmentService } from './tokenEnrichmentService';
 import { getErrorMessage } from '../utils/errors';
 import { 
   AlphaSignal, AlphaSignalFeatureBreakdown, FeatureEvidence,
@@ -319,8 +321,8 @@ export class HeliusIngestionWorker {
 
         let realPrice = tx.executionPriceUsd;
         try {
-          const priceRecord = await RealDataProviders.fetchBirdeyePrice(candidateMint);
-          if (priceRecord && priceRecord.priceUsd > 0) {
+          const priceRecord = await ReferencePriceService.getPrice(candidateMint);
+          if (priceRecord && priceRecord.priceUsd && priceRecord.priceUsd > 0) {
             realPrice = priceRecord.priceUsd;
           }
         } catch {
@@ -357,6 +359,9 @@ export class HeliusIngestionWorker {
         };
         await this.storage.saveToken(tokenData);
         discoveredTokens.push(tokenData);
+        
+        // Queue asynchronous enrichment with Birdeye/DEXScreener to avoid blocking ingestion loop
+        TokenEnrichmentService.enrichTokenIfNeeded(candidateMint, this.storage).catch(console.error);
 
         if (tx.tradeDirection === 'BUY' && tx.usdValue >= 500) {
           const createInsufficientEvidence = (val: number | null): FeatureEvidence<number> | null => {

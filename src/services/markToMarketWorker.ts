@@ -1,5 +1,6 @@
 import { PaperPortfolio, PaperPosition, PaperTradeRecord, AlphaSignal, SystemSettings } from '../types';
 import { RealDataProviders } from './realDataProviders';
+import { ReferencePriceService } from './referencePriceService';
 import { StorageAdapter } from './persistence';
 import { RiskEngine } from './riskEngine';
 import { getErrorMessage } from '../utils/errors';
@@ -39,23 +40,16 @@ export class MarkToMarketWorker {
     let totalUnrealizedPnl = 0;
 
     for (const pos of openPositions) {
-      // 1. Fetch current price from Birdeye with freshness check
       let currentPrice = pos.currentPrice;
       let priceStatus: 'FRESH' | 'STALE' | 'UNAVAILABLE' = 'UNAVAILABLE';
       let _priceSource = 'CACHE';
 
       try {
-        const priceRec = await RealDataProviders.fetchBirdeyePrice(pos.tokenAddress);
-        if (priceRec && priceRec.priceUsd > 0) {
-          const ageSec = priceRec.dataFreshnessSeconds ?? Math.round((Date.now() - new Date(priceRec.observedAt || priceRec.timestamp).getTime()) / 1000);
-          currentPrice = priceRec.priceUsd;
-          if (ageSec <= 60) {
-            priceStatus = 'FRESH';
-            _priceSource = priceRec.source || 'BIRDEYE';
-          } else {
-            priceStatus = 'STALE';
-            _priceSource = `${priceRec.source || 'BIRDEYE'}_STALE`;
-          }
+        const refPrice = await ReferencePriceService.getPrice(pos.tokenAddress);
+        if (refPrice && refPrice.priceUsd && refPrice.priceUsd > 0) {
+          currentPrice = refPrice.priceUsd;
+          priceStatus = refPrice.status;
+          _priceSource = refPrice.source || 'CACHE';
         }
       } catch {
         priceStatus = 'UNAVAILABLE';

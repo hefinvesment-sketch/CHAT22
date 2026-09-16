@@ -72,6 +72,7 @@ export default function App() {
   const [systemReady, setSystemReady] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [providers, setProviders] = useState<unknown[]>([]);
+  const [birdeyeUsage, setBirdeyeUsage] = useState<any>(null);
   const [ingestionStats, setIngestionStats] = useState<{
     isRunning: boolean;
     transactionsIngested: number;
@@ -112,6 +113,7 @@ export default function App() {
         if (data.appMode) setAppMode(data.appMode);
         if (data.systemReady !== undefined) setSystemReady(data.systemReady);
         if (data.providers) setProviders(data.providers);
+        if (data.birdeyeUsage) setBirdeyeUsage(data.birdeyeUsage);
         if (data.ingestionStats) setIngestionStats(data.ingestionStats);
         if (data.portfolio) setPortfolio(data.portfolio);
         if (data.signals) setSignals(data.signals || []);
@@ -373,7 +375,10 @@ export default function App() {
           )}
 
           {activeTab === 'health' && (
-            <SystemHealthView />
+            <SystemHealthView 
+              birdeyeUsage={birdeyeUsage} 
+              providers={providers as any[]} 
+            />
           )}
 
           {activeTab === 'ai_analyst' && (

@@ -1,5 +1,6 @@
 import { StorageAdapter } from './persistence';
 import { RedisClientService } from './redisClient';
+import { BirdeyeProvider } from './providers/birdeyeProvider';
 import { getErrorMessage } from '../utils/errors';
 
 export type ProviderStatus = 
@@ -335,101 +336,10 @@ export class RealDataProviders {
     }
   }
 
-  // 2. Birdeye Health & Fetcher
-  public static getBirdeyeHeaders(): Record<string, string> {
-    const apiKey = process.env.BIRDEYE_API_KEY?.trim() || '';
-    return {
-      'X-API-KEY': apiKey,
-      'x-chain': 'solana',
-      'Accept': 'application/json'
-    };
-  }
-
   public static async checkBirdeyeHealth(): Promise<ProviderHealthRecord> {
-    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
-    const mode = this.getAppMode();
-
-    if (!apiKey) {
-      const record: ProviderHealthRecord = {
-        providerName: 'Birdeye',
-        status: mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED',
-        operationalStatus: 'NOT_CONFIGURED',
-        modeReadiness: mode === 'demo' ? 'DEMO_READY' : 'UNCONFIGURED',
-        lastChecked: new Date().toISOString(),
-        latencyMs: null,
-        message: 'BIRDEYE_API_KEY is not defined in environment.',
-        activeMode: mode
-      };
-      this.healthMap['Birdeye'] = record;
-      return record;
-    }
-
-    try {
-      const start = Date.now();
-      const res = await fetch('https://public-api.birdeye.so/defi/price?address=So11111111111111111111111111111111111111112', {
-        headers: this.getBirdeyeHeaders()
-      });
-      const latencyMs = Date.now() - start;
-
-      if (!res.ok) {
-        const record: ProviderHealthRecord = {
-          providerName: 'Birdeye',
-          status: 'ERROR',
-          operationalStatus: 'ERROR',
-          modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
-          lastChecked: new Date().toISOString(),
-          latencyMs,
-          message: `Birdeye returned status HTTP ${res.status}`,
-          activeMode: mode
-        };
-        this.healthMap['Birdeye'] = record;
-        return record;
-      }
-
-      const json = await res.json().catch(() => null);
-      if (json && json.success === true && typeof json.data?.value === 'number' && Number.isFinite(json.data.value) && json.data.value > 0) {
-        const record: ProviderHealthRecord = {
-          providerName: 'Birdeye',
-          status: 'CONNECTED',
-          operationalStatus: 'CONNECTED',
-          modeReadiness: 'LIVE_CAPABLE',
-          lastChecked: new Date().toISOString(),
-          lastSuccessfulEvent: new Date().toISOString(),
-          latencyMs,
-          message: 'Birdeye live DeFi pricing verified.',
-          activeMode: mode
-        };
-        this.healthMap['Birdeye'] = record;
-        return record;
-      } else {
-        const reason = json?.message || (json?.success === false ? 'API returned success=false' : 'Invalid price payload');
-        const record: ProviderHealthRecord = {
-          providerName: 'Birdeye',
-          status: 'DEGRADED',
-          operationalStatus: 'DEGRADED',
-          modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
-          lastChecked: new Date().toISOString(),
-          latencyMs,
-          message: `Birdeye response validation failed: ${reason}`,
-          activeMode: mode
-        };
-        this.healthMap['Birdeye'] = record;
-        return record;
-      }
-    } catch (err: unknown) {
-      const record: ProviderHealthRecord = {
-        providerName: 'Birdeye',
-        status: 'UNREACHABLE',
-        operationalStatus: 'UNREACHABLE',
-        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
-        lastChecked: new Date().toISOString(),
-        latencyMs: null,
-        message: this.sanitizeMessage(getErrorMessage(err)),
-        activeMode: mode
-      };
-      this.healthMap['Birdeye'] = record;
-      return record;
-    }
+    const health = await BirdeyeProvider.checkHealth();
+    this.healthMap['Birdeye'] = health;
+    return health;
   }
 
   // 3. Solana RPC Health Check
@@ -793,15 +703,13 @@ export class RealDataProviders {
 
   // 7. Birdeye Real-time Price Query (with Jupiter V3 fallback)
   public static async fetchBirdeyePrice(tokenAddress: string): Promise<MarketPriceRecord> {
-    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
     const mode = this.getAppMode();
+    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
 
     if (!apiKey) {
       // First try live Jupiter Price V3 if Jupiter key or API is available
       const jupPrice = await this.fetchJupiterPrice(tokenAddress);
-      if (jupPrice) {
-        return jupPrice;
-      }
+      if (jupPrice) return jupPrice;
 
       if (mode !== 'demo') {
         throw new Error(`PROVIDER ERROR: Birdeye API key missing and Jupiter Price API unavailable in ${mode} mode.`);
@@ -821,15 +729,12 @@ export class RealDataProviders {
     }
 
     try {
-      const res = await fetch(`https://public-api.birdeye.so/defi/price?address=${tokenAddress}`, {
-        headers: this.getBirdeyeHeaders()
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json || !json.success || typeof json.data?.value !== 'number' || !Number.isFinite(json.data.value) || json.data.value <= 0) {
-        throw new Error(json?.message || `Invalid price response from Birdeye (HTTP ${res.status})`);
+      const data = await BirdeyeProvider.getPrice(tokenAddress);
+      if (!data || typeof data.value !== 'number' || data.value <= 0) {
+        throw new Error(`Invalid price response from Birdeye cache/API`);
       }
 
-      const updateUnixTime = json.data.updateUnixTime;
+      const updateUnixTime = data.updateUnixTime;
       const observedAt = updateUnixTime ? new Date(updateUnixTime * 1000).toISOString() : null;
       const dataFreshnessSeconds = updateUnixTime
         ? Math.max(0, Math.round((Date.now() - updateUnixTime * 1000) / 1000))
@@ -837,8 +742,8 @@ export class RealDataProviders {
 
       return {
         tokenAddress,
-        tokenSymbol: json.data.symbol || 'TOKEN',
-        priceUsd: json.data.value,
+        tokenSymbol: 'TOKEN',
+        priceUsd: data.value,
         source: 'BIRDEYE_REST_API',
         timestamp: observedAt || new Date().toISOString(),
         observedAt,
@@ -849,9 +754,7 @@ export class RealDataProviders {
     } catch (err: unknown) {
       // Try live Jupiter Price V3 before throwing or falling back
       const jupPrice = await this.fetchJupiterPrice(tokenAddress);
-      if (jupPrice) {
-        return jupPrice;
-      }
+      if (jupPrice) return jupPrice;
 
       if (mode !== 'demo') {
         throw new Error(`PROVIDER FAILURE [Birdeye]: ${getErrorMessage(err)}`, { cause: err });
@@ -920,19 +823,7 @@ export class RealDataProviders {
   }
 
   public static async getBirdeyeTokenInfo(mintAddress: string): Promise<unknown> {
-    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
-    if (!apiKey) return null;
-    try {
-      const response = await fetch(`https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`, {
-        headers: this.getBirdeyeHeaders()
-      });
-      if (!response.ok) return null;
-      const data = await response.json().catch(() => null);
-      return data?.success ? data.data : null;
-    } catch (err: unknown) {
-      console.warn(`[Birdeye Token Info Warning]: ${this.sanitizeMessage(getErrorMessage(err))}`);
-      return null;
-    }
+    return await BirdeyeProvider.getTokenOverview(mintAddress);
   }
 
   public static async getAllProviderHealth(storage?: StorageAdapter): Promise<ProviderHealthRecord[]> {

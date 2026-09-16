@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { StorageAdapter } from './persistence';
 import { RealDataProviders } from './realDataProviders';
+import { ReferencePriceService } from './referencePriceService';
 import { getErrorMessage } from '../utils/errors';
 
 export const MIN_STRATEGY_SAMPLE_TRADES = 20;
@@ -1040,11 +1041,10 @@ export class StrategyLabEngine {
         let isPriceFresh = false;
 
         try {
-          const priceRec = await RealDataProviders.fetchBirdeyePrice(pos.tokenAddress);
-          if (priceRec && priceRec.priceUsd > 0) {
-            const ageSec = priceRec.dataFreshnessSeconds ?? Math.round((Date.now() - new Date(priceRec.observedAt || priceRec.timestamp).getTime()) / 1000);
-            currentPrice = priceRec.priceUsd;
-            isPriceFresh = ageSec <= 60;
+          const refPrice = await ReferencePriceService.getPrice(pos.tokenAddress);
+          if (refPrice && refPrice.priceUsd && refPrice.priceUsd > 0) {
+            currentPrice = refPrice.priceUsd;
+            isPriceFresh = refPrice.status === 'FRESH';
           }
         } catch {
           isPriceFresh = false;

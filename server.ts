@@ -25,6 +25,7 @@ import { HeliusIngestionWorker } from './src/services/heliusIngestionWorker';
 import { WalletDiscoveryService } from './src/services/walletDiscovery';
 import { SmartMoneyFlowEngine } from './src/services/smartMoneyFlow';
 import { StrategyLabEngine } from './src/services/strategyLabEngine';
+import { BirdeyeProvider } from './src/services/providers/birdeyeProvider';
 import { 
   BacktestConfig, 
   ResearchQueryFilter, 
@@ -575,6 +576,7 @@ app.get('/api/state', async (req: Request, res: Response) => {
     },
     liveEvents,
     settings: systemSettings,
+    birdeyeUsage: BirdeyeProvider.getUsageStats(),
     parallelBots: StrategyLabEngine.isEngineInitialized()
       ? StrategyLabEngine.getBotPortfolios()
       : (APP_MODE === 'live_paper' ? [] : parallelBots),
