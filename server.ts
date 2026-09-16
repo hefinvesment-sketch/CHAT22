@@ -309,7 +309,7 @@ async function initializeState() {
           }
         }
       );
-      heliusWorker.start(HELIUS_POLL_INTERVAL_MS);
+      heliusWorker.start();
       console.log(`[System]: Helius Ingestion Worker automatically started for live_paper with interval ${HELIUS_POLL_INTERVAL_MS}ms.`);
     }
 

@@ -360,9 +360,9 @@ export const AlphaSignalsView: React.FC<AlphaSignalsViewProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-amber-400 font-semibold">{w.convictionMultiplier}x Conviction</span>
                       <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                        w.isIndependent ? 'bg-emerald-950/80 text-emerald-400' : 'bg-rose-950/80 text-rose-400'
+                        w.independenceStatus === 'INDEPENDENT' ? 'bg-emerald-950/80 text-emerald-400' : 'bg-rose-950/80 text-rose-400'
                       }`}>
-                        {w.isIndependent ? 'Independent' : 'Cluster Sybil'}
+                        {w.independenceStatus === 'INDEPENDENT' ? 'Independent' : 'Cluster Sybil'}
                       </span>
                     </div>
                   </div>

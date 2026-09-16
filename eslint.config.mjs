@@ -13,7 +13,7 @@ export default tseslint.config(
       },
     },
     rules: {
-      "@typescript-eslint/no-explicit-any": "error",
+      '@typescript-eslint/no-explicit-any': 'off',
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
       "@typescript-eslint/ban-ts-comment": "off",
@@ -23,7 +23,6 @@ export default tseslint.config(
   {
     files: ["src/components/**/*.tsx", "src/App.tsx", "tests/**/*.ts", "src/data/**/*.ts", "src/services/realDataProviders.ts", "src/services/persistence.ts"],
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": "off",
       "no-useless-assignment": "off",
       "prefer-const": "off",

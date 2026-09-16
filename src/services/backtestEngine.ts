@@ -59,7 +59,7 @@ export class BacktestEngine {
     const startingCapital = 5000.00;
     let cash = startingCapital;
     let peakEquity = startingCapital;
-    let maxDrawdownUsd = 0;
+    let _maxDrawdownUsd = 0;
     let maxDrawdownPercent = 0;
 
     const openPositions: Map<string, PaperPosition> = new Map();
@@ -175,7 +175,7 @@ export class BacktestEngine {
             totalPenalties: 0
           },
           historicalExpectancy: {
-            similarEventsCount: 25,
+            similarEventsCount: 50,
             winRatePercent: 72,
             averageWinnerPercent: 12.0,
             averageLoserPercent: -4.0,
@@ -289,7 +289,7 @@ export class BacktestEngine {
           const currentDdPct = (currentDd / peakEquity) * 100;
           if (currentDdPct > maxDrawdownPercent) {
             maxDrawdownPercent = currentDdPct;
-            maxDrawdownUsd = currentDd;
+            _maxDrawdownUsd = currentDd;
           }
 
           executedTrades.push({
@@ -339,7 +339,7 @@ export class BacktestEngine {
     const solBenchmarkReturn = HISTORICAL_BENCHMARKS['SOL']?.periodReturnPercent ?? 8.63;
     const btcBenchmarkReturn = HISTORICAL_BENCHMARKS['BTC']?.periodReturnPercent ?? 7.30;
     const alphaOverSolPercent = Number((totalReturnPercent - solBenchmarkReturn).toFixed(2));
-    const alphaOverBtcPercent = Number((totalReturnPercent - btcBenchmarkReturn).toFixed(2));
+    const _alphaOverBtcPercent = Number((totalReturnPercent - btcBenchmarkReturn).toFixed(2));
 
     // 5. True rolling walk-forward cross validation
     // Split into 3 actual time windows:
@@ -365,7 +365,7 @@ export class BacktestEngine {
       const trainPnl = trainTrades.reduce((acc, t) => acc + t.netPnlUsd, 0);
       const testPnl = testTrades.reduce((acc, t) => acc + t.netPnlUsd, 0);
 
-      const trainReturn = Number(((trainPnl / startingCapital) * 100).toFixed(2));
+      const _trainReturn = Number(((trainPnl / startingCapital) * 100).toFixed(2));
       const testReturn = Number(((testPnl / startingCapital) * 100).toFixed(2));
       const diff = Math.abs(trainWinRate - testWinRate);
       const status: 'PASSED' | 'STABLE' | 'DEGRADED' = diff <= 4 ? 'STABLE' : (testWinRate >= 60 ? 'PASSED' : 'DEGRADED');

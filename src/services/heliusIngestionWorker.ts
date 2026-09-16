@@ -2,17 +2,14 @@ import { TokenResolver } from './tokenResolver';
 import { StorageAdapter } from './persistence';
 import { HeliusTransactionParser, ParsedTransactionRecord } from './heliusParser';
 import { WalletDiscoveryService } from './walletDiscovery';
-import { AlphaEngine } from './alphaEngine';
-import { RealisticSolanaExecutionSimulator } from './providers';
 import { RealDataProviders } from './realDataProviders';
-import { RedisClientService } from './redisClient';
 import { getErrorMessage } from '../utils/errors';
 import { 
-  AlphaSignal, AlphaSignalFeatureBreakdown, FeatureEvidence, 
-  TokenMarketData, 
-  WalletProfile, 
-  SystemSettings, 
-  LiveEventItem 
+  AlphaSignal, AlphaSignalFeatureBreakdown, FeatureEvidence,
+  TokenMarketData,
+  WalletProfile,
+  SystemSettings,
+  LiveEventItem
 } from '../types';
 
 const MONITORED_PROGRAMS = [
@@ -31,51 +28,54 @@ const CORE_MINTS = new Set([
 
 export const DEFAULT_HELIUS_POLL_INTERVAL_MS = 600000; // 10 minutes
 
+export type WorkerStatus = 'RUNNING' | 'HEALTHY' | 'DEGRADED' | 'ERROR';
+
 export class HeliusIngestionWorker {
   private isRunning: boolean = false;
   private intervalTimer: NodeJS.Timeout | null = null;
-  private processedSignatures: Set<string> = new Set();
   private programIndex: number = 0;
   private isPolling: boolean = false;
-
   public pollIntervalMs: number = DEFAULT_HELIUS_POLL_INTERVAL_MS;
 
   // Stats
+  public status: WorkerStatus = 'HEALTHY';
   public transactionsIngested: number = 0;
   public walletsDiscovered: number = 0;
   public signalsGenerated: number = 0;
-  public lastProcessedTimestamp: string = new Date().toISOString();
+  
+  public lastPollStartedAt: string | null = null;
+  public lastPollCompletedAt: string | null = null;
+  public lastSuccessfulIngestionAt: string | null = null;
+  public lastErrorAt: string | null = null;
+  public lastErrorMessage: string | null = null;
+  
+  public transactionsLastPoll: number = 0;
+  public pagesFetchedLastPoll: number = 0;
+  public backlogDetected: boolean = false;
 
-  private executionSimulator = new RealisticSolanaExecutionSimulator();
+  private appMode: string;
 
   constructor(
     private storage: StorageAdapter,
     private systemSettings: SystemSettings,
-    private onNewState?: (update: {
-      transactions?: ParsedTransactionRecord[];
-      wallets?: WalletProfile[];
-      tokens?: TokenMarketData[];
-      signals?: AlphaSignal[];
+    private onNewState?: (state: {
+      transactions: ParsedTransactionRecord[];
+      wallets: WalletProfile[];
+      tokens: TokenMarketData[];
+      signals: AlphaSignal[];
       liveEvent?: LiveEventItem;
     }) => void
-  ) {}
+  ) {
+    this.appMode = process.env.APP_MODE || 'live_paper';
+  }
 
-  public start(intervalMs: number = DEFAULT_HELIUS_POLL_INTERVAL_MS): void {
+  public start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
-    this.pollIntervalMs = intervalMs;
-    console.log(`[HeliusIngestionWorker]: Starting automated on-chain ingestion worker (interval: ${intervalMs}ms).`);
-
-    // Run first batch immediately
-    this.pollBatch().catch(err => {
-      console.warn('[HeliusIngestionWorker] Initial poll error:', err.message);
-    });
-
-    this.intervalTimer = setInterval(() => {
-      this.pollBatch().catch(err => {
-        console.warn('[HeliusIngestionWorker] Poll batch error:', err.message);
-      });
-    }, intervalMs);
+    this.status = 'RUNNING';
+    console.log('[HeliusIngestionWorker]: Starting ingestion polling...');
+    this.pollBatch();
+    this.intervalTimer = setInterval(() => this.pollBatch(), this.pollIntervalMs);
   }
 
   public stop(): void {
@@ -84,17 +84,26 @@ export class HeliusIngestionWorker {
       this.intervalTimer = null;
     }
     this.isRunning = false;
+    this.status = 'HEALTHY';
     console.log('[HeliusIngestionWorker]: Ingestion worker stopped.');
   }
 
   public getStatus() {
     return {
       running: this.isRunning,
+      status: this.status,
       pollIntervalMs: this.pollIntervalMs,
       transactionsIngested: this.transactionsIngested,
       walletsDiscovered: this.walletsDiscovered,
       signalsGenerated: this.signalsGenerated,
-      lastProcessedTimestamp: this.lastProcessedTimestamp
+      lastPollStartedAt: this.lastPollStartedAt,
+      lastPollCompletedAt: this.lastPollCompletedAt,
+      lastSuccessfulIngestionAt: this.lastSuccessfulIngestionAt,
+      lastErrorAt: this.lastErrorAt,
+      lastErrorMessage: this.lastErrorMessage,
+      transactionsLastPoll: this.transactionsLastPoll,
+      pagesFetchedLastPoll: this.pagesFetchedLastPoll,
+      backlogDetected: this.backlogDetected
     };
   }
 
@@ -104,114 +113,137 @@ export class HeliusIngestionWorker {
   private async pollBatch(): Promise<void> {
     if (this.isPolling) return;
     this.isPolling = true;
+    this.lastPollStartedAt = new Date().toISOString();
+    this.transactionsLastPoll = 0;
+    this.pagesFetchedLastPoll = 0;
+    this.backlogDetected = false;
 
     try {
       const apiKey = RealDataProviders.getHeliusApiKey();
-
-      // Cycle through monitored DEX programs
       const targetProgram = MONITORED_PROGRAMS[this.programIndex % MONITORED_PROGRAMS.length];
       this.programIndex++;
+      
+      let sourceKey = 'helius:UNKNOWN';
+      if (targetProgram === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4') sourceKey = 'helius:JUPITER';
+      else if (targetProgram === '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8') sourceKey = 'helius:RAYDIUM';
+      else if (targetProgram === 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc') sourceKey = 'helius:ORCA';
+      else sourceKey = `helius:${targetProgram}`;
 
+      const checkpoint = await this.storage.getIngestionCheckpoint(sourceKey);
+      const lastSignature = checkpoint?.lastSignature;
+
+      const pageSize = Number(process.env.HELIUS_SIGNATURE_PAGE_SIZE) || 100;
+      const maxPages = Number(process.env.HELIUS_MAX_PAGES_PER_POLL) || 10;
+      
       const rpcEndpoint = await RealDataProviders.getWorkingSolanaRpcUrl();
 
-      // 1. Fetch recent signatures for monitored DEX program
-      const sigRes = await fetch(rpcEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getSignaturesForAddress',
-          params: [targetProgram, { limit: 12 }]
-        })
-      });
+      let currentBefore: string | undefined = undefined;
+      const fetchedSignatures: string[] = [];
+      let reachedCheckpoint = false;
+      let pagesFetched = 0;
 
-      if (!sigRes.ok) {
-        return;
-      }
-
-      const sigData = await sigRes.json();
-      const rawSignatures: unknown[] = sigData.result || [];
-      if (rawSignatures.length === 0) {
-        return;
-      }
-
-      // Filter out already processed signatures (using local cache & Upstash Redis)
-      const newSigs: string[] = [];
-      for (const item of rawSignatures) {
-        const sig = typeof item === 'object' && item !== null && 'signature' in item ? (item as { signature?: string }).signature : undefined;
-        if (!sig || this.processedSignatures.has(sig)) continue;
-
-        // Check Redis cache
-        const redisKey = `hef:sig:${sig}`;
-        const existsInRedis = await RedisClientService.get(redisKey);
-        if (existsInRedis) {
-          this.processedSignatures.add(sig);
-          continue;
+      while (pagesFetched < maxPages && !reachedCheckpoint) {
+        pagesFetched++;
+        this.pagesFetchedLastPoll = pagesFetched;
+        
+        const params: any = { limit: pageSize };
+        if (currentBefore) {
+          params.before = currentBefore;
         }
 
-        newSigs.push(sig);
-        this.processedSignatures.add(sig);
-        if (this.processedSignatures.size > 5000) {
-          const firstKey = this.processedSignatures.values().next().value;
-          if (firstKey) this.processedSignatures.delete(firstKey);
+        const sigRes = await fetch(rpcEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getSignaturesForAddress',
+            params: [targetProgram, params]
+          })
+        });
+
+        if (!sigRes.ok) {
+          this.status = 'DEGRADED';
+          this.lastErrorMessage = `RPC Error ${sigRes.status}`;
+          break;
         }
 
-        // Cache in Redis for 12 hours
-        await RedisClientService.set(redisKey, '1', 43200).catch(() => {});
-      }
+        const sigData = await sigRes.json();
+        const rawSignatures: any[] = sigData.result || [];
 
-      if (newSigs.length === 0) {
-        return;
-      }
+        if (rawSignatures.length === 0) {
+          reachedCheckpoint = true;
+          break;
+        }
 
-      // 2. Fetch enhanced parsed transactions from Helius (with fallback to direct Solana RPC)
-      let rawTxs: unknown[] = [];
-      if (apiKey) {
-        try {
-          const enhRes = await fetch(`https://api.helius.xyz/v0/transactions/?api-key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transactions: newSigs.slice(0, 10) })
-          });
-          if (enhRes.ok) {
-            rawTxs = await enhRes.json();
+        for (const item of rawSignatures) {
+          if (!item || !item.signature) continue;
+          const sig = item.signature;
+          
+          if (sig === lastSignature) {
+            reachedCheckpoint = true;
+            break;
           }
-        } catch {
-          // Fall back to Solana RPC below
+          fetchedSignatures.push(sig);
+        }
+        
+        if (!reachedCheckpoint && rawSignatures.length > 0) {
+          currentBefore = rawSignatures[rawSignatures.length - 1].signature;
+        } else {
+          break;
         }
       }
 
-      if (!Array.isArray(rawTxs) || rawTxs.length === 0) {
-        // Direct Solana RPC getTransaction fallback
-        for (const sig of newSigs.slice(0, 4)) {
+      if (!reachedCheckpoint && pagesFetched >= maxPages) {
+        this.backlogDetected = true;
+        this.status = 'DEGRADED';
+      }
+
+      if (fetchedSignatures.length === 0) {
+        this.isPolling = false;
+        this.lastPollCompletedAt = new Date().toISOString();
+        if (this.status !== 'DEGRADED') this.status = 'HEALTHY';
+        return;
+      }
+
+      // Reverse chronologically (oldest first)
+      fetchedSignatures.reverse();
+      
+      // Batch process enhanced transactions
+      const batchSize = 25;
+      const rawTxs: any[] = [];
+      
+      for (let i = 0; i < fetchedSignatures.length; i += batchSize) {
+        const batchSigs = fetchedSignatures.slice(i, i + batchSize);
+        if (apiKey) {
           try {
-            const txRes = await fetch(rpcEndpoint, {
+            const txRes = await fetch(`https://api.helius.xyz/v0/transactions/?api-key=${apiKey}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'getTransaction',
-                params: [sig, { maxSupportedTransactionVersion: 0, encoding: 'jsonParsed' }]
-              })
+              body: JSON.stringify({ transactions: batchSigs })
             });
             if (txRes.ok) {
-              const txJson = await txRes.json();
-              if (txJson.result) {
-                rawTxs.push(HeliusTransactionParser.mapSolanaRpcTransaction(txJson.result, sig));
+              const resJson = await txRes.json();
+              if (Array.isArray(resJson)) {
+                rawTxs.push(...resJson);
               }
+            } else {
+              this.status = 'DEGRADED';
             }
-          } catch {
-            // ignore individual RPC errors
+          } catch (err) {
+            this.status = 'DEGRADED';
+            this.lastErrorMessage = getErrorMessage(err);
           }
         }
       }
-      if (!Array.isArray(rawTxs) || rawTxs.length === 0) {
+
+      if (rawTxs.length === 0) {
+        this.isPolling = false;
+        this.lastPollCompletedAt = new Date().toISOString();
         return;
       }
 
-      // 3. Parse transactions
+      // Parse transactions
       const parsedRecords: ParsedTransactionRecord[] = [];
       for (const tx of rawTxs) {
         try {
@@ -225,13 +257,21 @@ export class HeliusIngestionWorker {
       }
 
       if (parsedRecords.length === 0) {
+        this.isPolling = false;
+        this.lastPollCompletedAt = new Date().toISOString();
         return;
       }
 
-      // 4. Persist transactions
+      // Persist transactions
       await this.storage.saveTransactionsBatch(parsedRecords);
       this.transactionsIngested += parsedRecords.length;
-      this.lastProcessedTimestamp = new Date().toISOString();
+      this.transactionsLastPoll = parsedRecords.length;
+      this.lastSuccessfulIngestionAt = new Date().toISOString();
+      
+      const newestPersisted = parsedRecords[parsedRecords.length - 1];
+      if (newestPersisted) {
+        await this.storage.saveIngestionCheckpoint(sourceKey, newestPersisted.signature, newestPersisted.slot || 0);
+      }
 
       // Emit live ingestion event
       const sampleTx = parsedRecords[0];
@@ -239,40 +279,35 @@ export class HeliusIngestionWorker {
       const ingestionEvent: LiveEventItem = {
         id: `ev-tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         timestamp: new Date().toLocaleTimeString(),
-        category: sampleTx?.tradeDirection === 'SELL' ? 'SMART_SELL' : 'SMART_BUY',
-        headline: `On-Chain Ingestion: ${sampleTx?.dex || 'DEX'}`,
+        category: sampleTx?.tradeDirection === 'SELL' ? 'DEX_SELL_OBSERVED' : 'DEX_BUY_OBSERVED',
+        headline: `On-Chain Observation: ${sampleTx?.dex || 'DEX'}`,
         detail: sampleTx ? `Verified block transaction ${sampleTx.signature.slice(0, 8)}... by ${sampleTx.walletAddress.slice(0, 6)}: ${tradeSummary}` : 'Verified block transaction batch',
         badgeType: 'info'
       };
 
-      // 5. Discover & evaluate wallets automatically
+      // Discover & evaluate wallets automatically
       const discoveredWallets = await WalletDiscoveryService.discoverWalletsFromActivity(
         rawTxs,
         this.systemSettings,
         this.storage
       );
-
       if (discoveredWallets.length > 0) {
         this.walletsDiscovered += discoveredWallets.length;
       }
 
-      // 6. Discover traded tokens and generate Alpha Signals
+      // Discover traded tokens and generate Alpha Signals
       const discoveredTokens: TokenMarketData[] = [];
       const generatedSignals: AlphaSignal[] = [];
 
       for (const tx of parsedRecords) {
-        // Look for non-core token mints
         const candidateMint = !CORE_MINTS.has(tx.tokenOutAddress) && tx.tokenOutAddress
           ? tx.tokenOutAddress
           : (!CORE_MINTS.has(tx.tokenInAddress) && tx.tokenInAddress ? tx.tokenInAddress : null);
-
-        const candidateSymbol = candidateMint === tx.tokenOutAddress ? tx.tokenOutSymbol : tx.tokenInSymbol;
-
-        if (!candidateMint || candidateSymbol === 'TOKEN_IN' || candidateSymbol === 'TOKEN_OUT') {
+          
+        if (!candidateMint) {
           continue;
         }
 
-        // Fetch real-time market quote
         let realPrice = tx.executionPriceUsd;
         try {
           const priceRecord = await RealDataProviders.fetchBirdeyePrice(candidateMint);
@@ -285,14 +320,10 @@ export class HeliusIngestionWorker {
 
         // Resolve Token Metadata
         const metadata = await TokenResolver.resolveToken(candidateMint);
-        if (metadata === 'INSUFFICIENT_DATA') {
-          console.warn(`[HeliusIngestion] Dropping signal: Insufficient token metadata for ${candidateMint}`);
-          continue;
-        }
 
         const tokenData: TokenMarketData = {
           symbol: metadata.symbol,
-          name: metadata.name,
+          name: metadata.name || 'Unknown Token',
           address: metadata.address,
           decimals: metadata.decimals,
           priceUsd: realPrice > 0 ? realPrice : null,
@@ -307,40 +338,38 @@ export class HeliusIngestionWorker {
           top10HoldersPercent: null,
           top20HoldersPercent: null,
           devHoldingsPercent: null,
-          hasFreezeAuthority: !metadata.securityFlags.freezeAuthorityRevoked,
-          hasMintAuthority: !metadata.securityFlags.mintAuthorityRevoked,
+          hasFreezeAuthority: metadata.securityFlags?.freezeAuthorityRevoked === null ? null : !metadata.securityFlags?.freezeAuthorityRevoked,
+          hasMintAuthority: metadata.securityFlags?.mintAuthorityRevoked === null ? null : !metadata.securityFlags?.mintAuthorityRevoked,
           liquidityLockedPercent: null,
           isHoneypotSafe: null,
           riskScore: null,
           smartMoneyVwap: null,
           netFlow24hUsd: null
         };
-
         await this.storage.saveToken(tokenData);
         discoveredTokens.push(tokenData);
 
-        // Generate Alpha Signal if positive flow and significant swap
         if (tx.tradeDirection === 'BUY' && tx.usdValue >= 500) {
-          const createMockEvidence = (val: number | null): FeatureEvidence | null => {
+          const createInsufficientEvidence = (val: number | null): FeatureEvidence<number> | null => {
             if (val === null) return null;
             return {
               value: val,
-              status: ('live_paper') === 'live_paper' ? 'INSUFFICIENT_DATA' : 'MOCK',
+              status: 'INSUFFICIENT_DATA',
               source: 'helius_ingestion_stub',
               timestamp: new Date().toISOString()
             };
           };
 
           const features: AlphaSignalFeatureBreakdown = {
-            traderSkillScore: createMockEvidence(null),
-            copyabilityScore: createMockEvidence(null),
-            independentConsensusScore: createMockEvidence(null),
-            convictionSurpriseScore: createMockEvidence(null),
-            smartMoneyAccelerationScore: createMockEvidence(null),
-            entryQualityScore: createMockEvidence(null),
-            liquidityTokenQualityScore: createMockEvidence(null),
-            regimeFitScore: createMockEvidence(null),
-            emergingTraderScore: createMockEvidence(null),
+            traderSkillScore: createInsufficientEvidence(null),
+            copyabilityScore: createInsufficientEvidence(null),
+            independentConsensusScore: createInsufficientEvidence(null),
+            convictionSurpriseScore: createInsufficientEvidence(null),
+            smartMoneyAccelerationScore: createInsufficientEvidence(null),
+            entryQualityScore: createInsufficientEvidence(null),
+            liquidityTokenQualityScore: createInsufficientEvidence(null),
+            regimeFitScore: createInsufficientEvidence(null),
+            emergingTraderScore: createInsufficientEvidence(null),
             penalties: {
               crowdingPenalty: 0,
               relatedWalletsPenalty: 0,
@@ -355,13 +384,10 @@ export class HeliusIngestionWorker {
             totalPenalties: 0
           };
 
-          const { alphaScore, signalState, dataStatus } = AlphaEngine.computeAlphaScore(features, ('live_paper'), this.systemSettings);
+          const alphaScore = null;
+          const signalState = 'WATCH';
+          const dataStatus = 'INSUFFICIENT_DATA';
           
-          const simulatedFill = undefined;
-          if (dataStatus === 'COMPLETE') {
-             // In real live mode this would only run if evidence is complete.
-          }
-
           const signal: AlphaSignal = {
             id: `sig-live-${candidateMint.slice(0, 6)}-${Date.now()}`,
             tokenSymbol: tokenData.symbol,
@@ -383,34 +409,34 @@ export class HeliusIngestionWorker {
               qualityScore: null,
               convictionMultiplier: null,
               tradeUsd: tx.usdValue,
-              isIndependent: false
+              independenceStatus: 'UNKNOWN'
             }],
             historicalExpectancy: {
               similarEventsCount: 0,
-              winRatePercent: 0,
-              averageWinnerPercent: 0,
-              averageLoserPercent: 0,
-              medianReturnPercent: 0,
-              grossEvPercent: 0,
-              executionCostPercent: 0,
-              netEvPercent: 0,
-              maxFavorableExcursionPercent: 0,
-              maxAdverseExcursionPercent: 0,
-              return5mPercent: 0,
-              return15mPercent: 0,
-              return1hPercent: 0,
-              return4hPercent: 0,
-              return24hPercent: 0, dataStatus: "VALID_SAMPLE" },
-            executionSimulation: simulatedFill
+              winRatePercent: null,
+              averageWinnerPercent: null,
+              averageLoserPercent: null,
+              medianReturnPercent: null,
+              grossEvPercent: null,
+              executionCostPercent: null,
+              netEvPercent: null,
+              maxFavorableExcursionPercent: null,
+              maxAdverseExcursionPercent: null,
+              return5mPercent: null,
+              return15mPercent: null,
+              return1hPercent: null,
+              return4hPercent: null,
+              return24hPercent: null, 
+              dataStatus: "INSUFFICIENT_SAMPLE" 
+            },
+            executionSimulation: undefined
           };
-
           await this.storage.saveSignal(signal);
           generatedSignals.push(signal);
           this.signalsGenerated++;
         }
       }
 
-      // Notify callback of updates
       if (this.onNewState) {
         this.onNewState({
           transactions: parsedRecords,
@@ -420,7 +446,15 @@ export class HeliusIngestionWorker {
           liveEvent: ingestionEvent
         });
       }
-    } catch (err: unknown) {
+
+      this.lastPollCompletedAt = new Date().toISOString();
+      if (!this.backlogDetected && this.status !== 'DEGRADED') {
+        this.status = 'HEALTHY';
+      }
+    } catch (err) {
+      this.status = 'ERROR';
+      this.lastErrorAt = new Date().toISOString();
+      this.lastErrorMessage = getErrorMessage(err);
       console.warn('[HeliusIngestionWorker] Error in poll cycle:', getErrorMessage(err));
     } finally {
       this.isPolling = false;

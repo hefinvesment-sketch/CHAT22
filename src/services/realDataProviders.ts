@@ -644,7 +644,7 @@ export class RealDataProviders {
       };
 
       if (mode !== 'demo') {
-        throw new Error(`PROVIDER FAILURE [Jupiter]: ${getErrorMessage(err)}`);
+        throw new Error(`PROVIDER FAILURE [Jupiter]: ${getErrorMessage(err)}`, { cause: err });
       }
 
       // Demo fallback only
@@ -759,7 +759,7 @@ export class RealDataProviders {
       }
 
       if (mode !== 'demo') {
-        throw new Error(`PROVIDER FAILURE [Birdeye]: ${getErrorMessage(err)}`);
+        throw new Error(`PROVIDER FAILURE [Birdeye]: ${getErrorMessage(err)}`, { cause: err });
       }
       return {
         tokenAddress,

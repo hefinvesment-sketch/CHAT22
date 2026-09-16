@@ -127,13 +127,11 @@ export class HeliusTransactionParser {
       const isInputQuote = tokenInMeta.isStable || tokenInAddress === 'So11111111111111111111111111111111111111112';
       const isOutputQuote = tokenOutMeta.isStable || tokenOutAddress === 'So11111111111111111111111111111111111111112';
 
-      let direction: TransactionType = 'SWAP';
-      let isStableRotation = false;
+      let direction: TransactionType;
 
       if (tokenInMeta.isStable && tokenOutMeta.isStable) {
         // e.g. USDT -> USDC
         direction = 'STABLECOIN_ROTATION';
-        isStableRotation = true;
       } else if (isInputQuote && !isOutputQuote) {
         // e.g. USDC -> JUP or SOL -> DRIFT
         direction = 'BUY';
@@ -181,7 +179,7 @@ export class HeliusTransactionParser {
         executionPriceUsd: price,
         usdValue: usdVal,
         transactionFeeUsd: feeUsd,
-        isStablecoinRotation: isStableRotation,
+        isStablecoinRotation: tokenInMeta.isStable && tokenOutMeta.isStable,
         isAirdropOrTransfer: false
       };
     }

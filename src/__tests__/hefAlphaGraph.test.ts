@@ -1,3 +1,4 @@
+process.env.LIVE_PAPER_EXECUTION_ENABLED = "true";
 import { describe, it, expect, beforeEach } from 'vitest';
 import { HeliusTransactionParser } from '../services/heliusParser';
 import { WalletPnLEngine, ReconstructedTrade } from '../services/walletPnLEngine';
@@ -10,7 +11,7 @@ import { AlphaSignal, PaperPortfolio, PaperPosition } from '../types';
 
 describe('HEF AlphaGraph Institutional Test Suite', () => {
   let portfolio: PaperPortfolio;
-  let openPositions: PaperPosition[];
+  let _openPositions: PaperPosition[];
 
   beforeEach(() => {
     portfolio = {
@@ -43,7 +44,6 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
       totalFeesPaidUsd: 0.0,
       equityHistory: []
     };
-    openPositions = [];
   });
 
   // Test 1 & 2: Helius Parser Classification & Stablecoin rotation
@@ -336,15 +336,15 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
       currentRegime: 'Trending Up',
       liquidityUsd: 2000000,
       features: {
-        traderSkillScore: 85,
-        copyabilityScore: 80,
-        independentConsensusScore: 80,
-        convictionSurpriseScore: 80,
-        smartMoneyAccelerationScore: 80,
-        entryQualityScore: 80,
-        liquidityTokenQualityScore: 80,
-        regimeFitScore: 80,
-        emergingTraderScore: 70,
+        traderSkillScore: { value: 85, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        copyabilityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        independentConsensusScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        convictionSurpriseScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        smartMoneyAccelerationScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        entryQualityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        liquidityTokenQualityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        regimeFitScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        emergingTraderScore: { value: 70, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
         penalties: {
           crowdingPenalty: 0,
           relatedWalletsPenalty: 0,
@@ -357,10 +357,10 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
           profitConcentrationPenalty: 0
         },
         totalPenalties: 0
-      } as any,
+      },
       historicalExpectancy: {
         dataStatus: 'VALID_SAMPLE',
-        similarEventsCount: 20,
+        similarEventsCount: 50,
         winRatePercent: 70,
         averageWinnerPercent: 10,
         averageLoserPercent: -4,
@@ -387,7 +387,7 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
         recommendedPositionUsd: 200,
         positionPercentOfPortfolio: 4.0
       },
-      participantWallets: [{ address: 'w1', qualityScore: 85, convictionMultiplier: 1.5, tradeUsd: 50000, isIndependent: true }]
+      participantWallets: [{ address: 'w1', qualityScore: 85, convictionMultiplier: 1.5, tradeUsd: 50000, independenceStatus: 'INDEPENDENT' }]
     };
 
     // Already holding $2000 in open positions (40% of $5000)
@@ -440,15 +440,15 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
       currentRegime: 'Trending Up',
       liquidityUsd: 2000000,
       features: {
-        traderSkillScore: 85,
-        copyabilityScore: 80,
-        independentConsensusScore: 80,
-        convictionSurpriseScore: 80,
-        smartMoneyAccelerationScore: 80,
-        entryQualityScore: 80,
-        liquidityTokenQualityScore: 80,
-        regimeFitScore: 80,
-        emergingTraderScore: 70,
+        traderSkillScore: { value: 85, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        copyabilityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        independentConsensusScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        convictionSurpriseScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        smartMoneyAccelerationScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        entryQualityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        liquidityTokenQualityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        regimeFitScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        emergingTraderScore: { value: 70, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
         penalties: {
           crowdingPenalty: 0,
           relatedWalletsPenalty: 0,
@@ -461,10 +461,10 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
           profitConcentrationPenalty: 0
         },
         totalPenalties: 0
-      } as any,
+      },
       historicalExpectancy: {
         dataStatus: 'VALID_SAMPLE',
-        similarEventsCount: 20,
+        similarEventsCount: 50,
         winRatePercent: 70,
         averageWinnerPercent: 10,
         averageLoserPercent: -4,
@@ -518,15 +518,15 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
       currentRegime: 'Trending Up',
       liquidityUsd: 2000000,
       features: {
-        traderSkillScore: 85,
-        copyabilityScore: 80,
-        independentConsensusScore: 80,
-        convictionSurpriseScore: 80,
-        smartMoneyAccelerationScore: 80,
-        entryQualityScore: 80,
-        liquidityTokenQualityScore: 80,
-        regimeFitScore: 80,
-        emergingTraderScore: 70,
+        traderSkillScore: { value: 85, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        copyabilityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        independentConsensusScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        convictionSurpriseScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        smartMoneyAccelerationScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        entryQualityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        liquidityTokenQualityScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        regimeFitScore: { value: 80, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
+        emergingTraderScore: { value: 70, status: 'OBSERVED', source: 'test', timestamp: new Date().toISOString() },
         penalties: {
           crowdingPenalty: 0,
           relatedWalletsPenalty: 0,
@@ -539,10 +539,10 @@ describe('HEF AlphaGraph Institutional Test Suite', () => {
           profitConcentrationPenalty: 0
         },
         totalPenalties: 0
-      } as any,
+      },
       historicalExpectancy: {
         dataStatus: 'VALID_SAMPLE',
-        similarEventsCount: 20,
+        similarEventsCount: 50,
         winRatePercent: 70,
         averageWinnerPercent: 10,
         averageLoserPercent: -4,

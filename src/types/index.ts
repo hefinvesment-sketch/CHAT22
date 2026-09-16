@@ -246,7 +246,7 @@ export interface AlphaSignal {
     qualityScore: number | null;
     convictionMultiplier: number | null;
     tradeUsd: number;
-    isIndependent: boolean;
+    independenceStatus: 'UNKNOWN' | 'INDEPENDENT' | 'POSSIBLY_RELATED' | 'STRONGLY_RELATED';
     clusterId?: string;
   }[];
   independentEliteCount: number | null;

@@ -105,7 +105,7 @@ export class AlphaEngine {
 
     // Map multiplier into 0-100 score
     // 1x = 50, 2x = 75, 4x = 90, 6x+ = 98+
-    let score = 50;
+    let score;
     if (multiplier >= 1) {
       score = Math.min(99, Math.round(50 + Math.log2(multiplier + 0.1) * 22));
     } else {
@@ -124,7 +124,7 @@ export class AlphaEngine {
    * Ensures related wallets/clusters are NOT counted as independent confirmations!
    */
   public static calculateIndependentConsensus(
-    participatingWallets: { qualityScore: number; isIndependent: boolean; clusterId?: string }[]
+    participatingWallets: { qualityScore: number; independenceStatus: 'UNKNOWN' | 'INDEPENDENT' | 'POSSIBLY_RELATED' | 'STRONGLY_RELATED'; clusterId?: string }[]
   ): {
     independentCount: number;
     independentConsensusScore: number;
@@ -134,7 +134,7 @@ export class AlphaEngine {
     let qualitySum = 0;
 
     for (const w of participatingWallets) {
-      if (w.isIndependent) {
+      if (w.independenceStatus === 'INDEPENDENT') {
         independentWallets++;
         qualitySum += w.qualityScore;
       } else if (w.clusterId && !distinctClusters.has(w.clusterId)) {
@@ -147,7 +147,7 @@ export class AlphaEngine {
     const avgQuality = independentWallets > 0 ? qualitySum / independentWallets : 0;
 
     // 1 wallet = ~35, 2 wallets = ~60, 3 wallets = ~78, 4 wallets = ~88, 5+ wallets = ~96
-    let score = 0;
+    let score;
     if (independentWallets >= 5) score = 96;
     else if (independentWallets === 4) score = 88;
     else if (independentWallets === 3) score = 78;

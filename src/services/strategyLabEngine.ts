@@ -5,8 +5,8 @@ import {
   StrategyDefinition,
   StrategyPortfolio,
   StrategyDecisionRecord,
-  StrategyStatus,
-  SystemSettings
+ 
+ 
 } from '../types';
 import { StorageAdapter } from './persistence';
 import { RealDataProviders } from './realDataProviders';
@@ -355,7 +355,7 @@ export class StrategyLabEngine {
           ? (grossLosses > 0 ? Number((grossProfits / grossLosses).toFixed(2)) : (grossProfits > 0 ? 10.0 : null)) 
           : null;
 
-        const equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
+        const _equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
         const stratPortfolio: StrategyPortfolio = {
           ...existing,
           status: def.enabled ? (closedCount > 0 ? 'ACTIVE' : 'WAITING_FOR_DATA') : 'PAUSED',
@@ -372,7 +372,7 @@ export class StrategyLabEngine {
         };
         this.portfolios.set(def.key, stratPortfolio);
       } else {
-        const equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
+        const _equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
         const initialPortfolio: StrategyPortfolio = {
           id: def.key,
           name: def.name,
@@ -857,7 +857,7 @@ export class StrategyLabEngine {
 
       if (appMode === 'live_paper') {
         try {
-          const decimals = await RealDataProviders.getTokenDecimals(signal.tokenAddress);
+          const _decimals = await RealDataProviders.getTokenDecimals(signal.tokenAddress);
           const rawQuote = await RealDataProviders.getJupiterQuote(
             'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
             signal.tokenAddress,

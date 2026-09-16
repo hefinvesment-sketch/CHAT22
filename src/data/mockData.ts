@@ -852,10 +852,10 @@ export const MOCK_SIGNALS: AlphaSignal[] = [
       totalPenalties: 3
     },
     participantWallets: [
-      { address: '7XsJmR8W4kQv9TL2Yp1Nv68LkA3Fz8dNmR91', qualityScore: 93, convictionMultiplier: 4.8, tradeUsd: 84000, isIndependent: true },
-      { address: '9pW8nM4LqV3rKz7sJb2Xy9Qf4Hd1Nm3A89', qualityScore: 95, convictionMultiplier: 2.4, tradeUsd: 140000, isIndependent: true },
-      { address: '3vR7qW8kP9mN4xZ1Lt6Yv2Fb7Hk4Jd9ZxY42', qualityScore: 91, convictionMultiplier: 5.2, tradeUsd: 18000, isIndependent: true },
-      { address: '8bNkP3mQ7vL2xZ9Tr4Yp1Nv8Hd4Fz6VwL77', qualityScore: 94, convictionMultiplier: 3.1, tradeUsd: 68000, isIndependent: true },
+      { address: '7XsJmR8W4kQv9TL2Yp1Nv68LkA3Fz8dNmR91', qualityScore: 93, convictionMultiplier: 4.8, tradeUsd: 84000, independenceStatus: 'INDEPENDENT' },
+      { address: '9pW8nM4LqV3rKz7sJb2Xy9Qf4Hd1Nm3A89', qualityScore: 95, convictionMultiplier: 2.4, tradeUsd: 140000, independenceStatus: 'INDEPENDENT' },
+      { address: '3vR7qW8kP9mN4xZ1Lt6Yv2Fb7Hk4Jd9ZxY42', qualityScore: 91, convictionMultiplier: 5.2, tradeUsd: 18000, independenceStatus: 'INDEPENDENT' },
+      { address: '8bNkP3mQ7vL2xZ9Tr4Yp1Nv8Hd4Fz6VwL77', qualityScore: 94, convictionMultiplier: 3.1, tradeUsd: 68000, independenceStatus: 'INDEPENDENT' },
     ],
     independentEliteCount: 4,
     totalSmartMoneyInflowUsd: 310000,
@@ -925,9 +925,9 @@ export const MOCK_SIGNALS: AlphaSignal[] = [
       totalPenalties: 2
     },
     participantWallets: [
-      { address: '7XsJmR8W4kQv9TL2Yp1Nv68LkA3Fz8dNmR91', qualityScore: 93, convictionMultiplier: 6.2, tradeUsd: 96000, isIndependent: true },
-      { address: '3vR7qW8kP9mN4xZ1Lt6Yv2Fb7Hk4Jd9ZxY42', qualityScore: 91, convictionMultiplier: 6.8, tradeUsd: 22000, isIndependent: true },
-      { address: '8bNkP3mQ7vL2xZ9Tr4Yp1Nv8Hd4Fz6VwL77', qualityScore: 94, convictionMultiplier: 4.0, tradeUsd: 74000, isIndependent: true }
+      { address: '7XsJmR8W4kQv9TL2Yp1Nv68LkA3Fz8dNmR91', qualityScore: 93, convictionMultiplier: 6.2, tradeUsd: 96000, independenceStatus: 'INDEPENDENT' },
+      { address: '3vR7qW8kP9mN4xZ1Lt6Yv2Fb7Hk4Jd9ZxY42', qualityScore: 91, convictionMultiplier: 6.8, tradeUsd: 22000, independenceStatus: 'INDEPENDENT' },
+      { address: '8bNkP3mQ7vL2xZ9Tr4Yp1Nv8Hd4Fz6VwL77', qualityScore: 94, convictionMultiplier: 4.0, tradeUsd: 74000, independenceStatus: 'INDEPENDENT' }
     ],
     independentEliteCount: 3,
     totalSmartMoneyInflowUsd: 192000,
@@ -997,8 +997,8 @@ export const MOCK_SIGNALS: AlphaSignal[] = [
       totalPenalties: 6
     },
     participantWallets: [
-      { address: '9pW8nM4LqV3rKz7sJb2Xy9Qf4Hd1Nm3A89', qualityScore: 95, convictionMultiplier: 2.1, tradeUsd: 110000, isIndependent: true },
-      { address: '8bNkP3mQ7vL2xZ9Tr4Yp1Nv8Hd4Fz6VwL77', qualityScore: 94, convictionMultiplier: 1.8, tradeUsd: 42000, isIndependent: true }
+      { address: '9pW8nM4LqV3rKz7sJb2Xy9Qf4Hd1Nm3A89', qualityScore: 95, convictionMultiplier: 2.1, tradeUsd: 110000, independenceStatus: 'INDEPENDENT' },
+      { address: '8bNkP3mQ7vL2xZ9Tr4Yp1Nv8Hd4Fz6VwL77', qualityScore: 94, convictionMultiplier: 1.8, tradeUsd: 42000, independenceStatus: 'INDEPENDENT' }
     ],
     independentEliteCount: 2,
     totalSmartMoneyInflowUsd: 152000,
@@ -1069,7 +1069,7 @@ export const MOCK_SIGNALS: AlphaSignal[] = [
       totalPenalties: 14
     },
     participantWallets: [
-      { address: '7XsJmR8W4kQv9TL2Yp1Nv68LkA3Fz8dNmR91', qualityScore: 93, convictionMultiplier: 1.2, tradeUsd: 24000, isIndependent: true },
+      { address: '7XsJmR8W4kQv9TL2Yp1Nv68LkA3Fz8dNmR91', qualityScore: 93, convictionMultiplier: 1.2, tradeUsd: 24000, independenceStatus: 'INDEPENDENT' },
     ],
     independentEliteCount: 1,
     totalSmartMoneyInflowUsd: 24000,
@@ -1129,7 +1129,7 @@ export const MOCK_SIGNALS: AlphaSignal[] = [
       totalPenalties: 82
     },
     participantWallets: [
-      { address: 'Fr4TqN8mK2vL7pZ3Xw9Y4bJd1Rm5Pt9NmP55', qualityScore: 42, convictionMultiplier: 8.4, tradeUsd: 110000, isIndependent: false, clusterId: 'cluster-meme-insiders' }
+      { address: 'Fr4TqN8mK2vL7pZ3Xw9Y4bJd1Rm5Pt9NmP55', qualityScore: 42, convictionMultiplier: 8.4, tradeUsd: 110000, independenceStatus: 'UNKNOWN', clusterId: 'cluster-meme-insiders' }
     ],
     independentEliteCount: 0,
     totalSmartMoneyInflowUsd: 110000,

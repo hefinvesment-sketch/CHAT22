@@ -42,7 +42,7 @@ export class MarkToMarketWorker {
       // 1. Fetch current price from Birdeye with freshness check
       let currentPrice = pos.currentPrice;
       let priceStatus: 'FRESH' | 'STALE' | 'UNAVAILABLE' = 'UNAVAILABLE';
-      let priceSource = 'CACHE';
+      let _priceSource = 'CACHE';
 
       try {
         const priceRec = await RealDataProviders.fetchBirdeyePrice(pos.tokenAddress);
@@ -51,14 +51,14 @@ export class MarkToMarketWorker {
           if (ageMs < 60000) { // Under 60s
             currentPrice = priceRec.priceUsd;
             priceStatus = 'FRESH';
-            priceSource = 'BIRDEYE';
+            _priceSource = 'BIRDEYE';
           } else {
             currentPrice = priceRec.priceUsd;
             priceStatus = 'STALE';
-            priceSource = 'BIRDEYE_STALE';
+            _priceSource = 'BIRDEYE_STALE';
           }
         }
-      } catch (err: unknown) {
+      } catch {
         priceStatus = 'UNAVAILABLE';
       }
 
@@ -105,7 +105,7 @@ export class MarkToMarketWorker {
               proceedsUsd = quote.outAmountUi;
               slippagePaid = proceedsUsd * (quote.priceImpactPct / 100);
             }
-          } catch (err: unknown) {
+          } catch (err) {
             console.warn(`[MTM Worker]: Real Jupiter exit quote failed for ${pos.tokenSymbol}: ${(err as Error).message}. Keeping position open.`);
             const updatedPos: PaperPosition = {
               ...pos,
@@ -267,7 +267,7 @@ export class MarkToMarketWorker {
         quoteLatencyMs = quote.latencyMs;
         slippagePct = (quote.slippageBps || 35) / 10000;
       }
-    } catch (err: unknown) {
+    } catch (err) {
       // In live_paper mode, if quote fails, reject the trade rather than fabricating a fill!
       if (process.env.APP_MODE === 'live_paper') {
         return {

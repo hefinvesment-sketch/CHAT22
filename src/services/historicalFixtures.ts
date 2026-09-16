@@ -1,4 +1,4 @@
-import { AlphaSignal, MarketRegime, WalletProfile } from '../types';
+import {MarketRegime} from '../types';
 
 export interface HistoricalPriceCandle {
   timestamp: string;

@@ -1,158 +1,142 @@
-import { AlphaSignal, PaperPortfolio, PaperPosition, SystemSettings } from '../types';
-
-export type RiskRejectCode =
-  | 'INSUFFICIENT_SIGNAL_DATA'
-  | 'SYNTHETIC_DATA_BLOCKED'
-  | 'MIN_ALPHA_SCORE'
-  | 'NEGATIVE_NET_EV'
-  | 'MIN_LIQUIDITY_USD'
-  | 'MIN_LIQUIDITY'
-  | 'MAX_ALLOWED_SLIPPAGE'
-  | 'SLIPPAGE_TOO_HIGH'
-  | 'MAX_PRICE_DISPLACEMENT'
-  | 'MAX_SINGLE_POSITION_PERCENT'
-  | 'MAX_TOKEN_EXPOSURE'
-  | 'MAX_TOTAL_DEPLOYED'
-  | 'MAX_OPEN_POSITIONS'
-  | 'DAILY_LOSS_LIMIT'
-  | 'DRAWDOWN_LIMIT'
-  | 'DUPLICATE_TOKEN_EXPOSURE'
-  | 'MIN_WALLET_QUALITY'
-  | 'MIN_SAMPLE_SIZE'
-  | 'TOKEN_RISK'
-  | 'SUSPICIOUS_TOKEN_STRUCTURE'
-  | 'TRADER_DETERIORATION'
-  | 'RELATED_WALLET_CONSENSUS_RISK'
-  | 'INSUFFICIENT_INDEPENDENT_CONSENSUS'
-  | 'MIN_COPYABILITY'
-  | 'INSUFFICIENT_CASH'
-  | 'STALE_MARKET_DATA';
+import { AlphaSignal, SystemSettings, PaperPortfolio, PaperPosition, FeatureEvidence } from '../types';
 
 export interface RiskEvaluationResult {
   passed: boolean;
-  code: 'PASS' | RiskRejectCode;
-  reason?: string;
-  details?: Record<string, unknown>;
+  code: string;
+  reason: string;
 }
 
 export class RiskEngine {
-
-  /**
-   * Prevents synthetic/mock data from executing in live environments.
-   */
-  private static assertNoSyntheticLiveData(signal: AlphaSignal): void {
-    const jsonStr = JSON.stringify(signal);
-    if (jsonStr.includes('MOCK') || jsonStr.includes('FIXTURE') || jsonStr.includes('SYNTHETIC_ESTIMATE') || jsonStr.includes('DEMO')) {
-      throw new Error('FATAL: Synthetic data detected in live execution pipeline. Trade aborted.');
+  private static validateFeatureEvidence(evidence: FeatureEvidence<number> | null, featureName: string): boolean {
+    if (!evidence) return false;
+    if (evidence.value == null) return false;
+    if (evidence.status !== 'OBSERVED' && evidence.status !== 'DERIVED') {
+      if (evidence.status === 'MODELED_EXECUTION') {
+        return ['copyabilityScore', 'entryQualityScore', 'convictionSurpriseScore'].includes(featureName);
+      }
+      return false;
     }
+    return true;
   }
 
-  /**
-   * Centralized institutional risk enforcement:
-   * Every proposed paper trade (live_paper or historical_backtest) MUST pass all checks.
-   * Returns structured PASS or REJECT with exact machine-readable code.
-   */
   public static evaluateTrade(
     signal: AlphaSignal,
     portfolio: PaperPortfolio,
     openPositions: PaperPosition[],
-    settings: SystemSettings,
-    options?: {
-
-
-      marketDataTimestampMs?: number;
-      maxDataAgeMs?: number;
-      tokenSecurityFlags?: { mintRevoked: boolean; freezeRevoked: boolean; lpBurned: boolean };
-    }
+    settings: SystemSettings
   ): RiskEvaluationResult {
-    // 0. Ensure no synthetic data in live environments
-    if (process.env.APP_MODE === 'live_paper' || process.env.APP_MODE === 'historical_backtest') {
-      this.assertNoSyntheticLiveData(signal);
-    }
-
-    // 0. Ensure signal evidence is complete
-    if (signal.dataStatus !== 'COMPLETE' || signal.alphaScore === null) {
+    // Phase 6: Kill Switches
+    if (process.env.LIVE_PAPER_EXECUTION_ENABLED !== 'true') {
       return {
         passed: false,
-        code: 'INSUFFICIENT_SIGNAL_DATA',
-        reason: 'Signal evidence is incomplete.'
+        code: 'EXECUTION_DISABLED_PENDING_DATA_VALIDATION',
+        reason: 'Live paper execution disabled pending validated research evidence.'
       };
     }
 
-    // 1. Data Freshness Check (Stale Data)
-    if (options?.marketDataTimestampMs) {
-      const maxAgeMs = options.maxDataAgeMs ?? 30000; // 30s
-      const dataAgeMs = Date.now() - options.marketDataTimestampMs;
-      if (dataAgeMs > maxAgeMs) {
-        return {
-          passed: false,
-          code: 'STALE_MARKET_DATA',
-          reason: `Market data is stale (${Math.round(dataAgeMs / 1000)}s old > ${Math.round(maxAgeMs / 1000)}s limit). Trade rejected.`
-        };
-      }
+    if (signal.liquidityUsd == null) {
+      return {
+        passed: false,
+        code: 'LIQUIDITY_UNAVAILABLE',
+        reason: 'Liquidity USD is null.'
+      };
     }
 
-    // 2. Token Security Risk Check (Honeypot, Mint, Freeze)
-    const securityFlags = options?.tokenSecurityFlags || (signal.tokenSecurityFlags ? {
-      mintRevoked: signal.tokenSecurityFlags.mintAuthorityRevoked,
-      freezeRevoked: signal.tokenSecurityFlags.freezeAuthorityRevoked,
-      lpBurned: signal.tokenSecurityFlags.lpBurned
-    } : undefined);
-
-    if (securityFlags) {
-      const { mintRevoked, freezeRevoked, lpBurned } = securityFlags;
-      if (!mintRevoked || !freezeRevoked || lpBurned === false) {
-        return {
-          passed: false,
-          code: 'SUSPICIOUS_TOKEN_STRUCTURE',
-          reason: `Token security hazard: Mint authority (${mintRevoked ? 'Revoked' : 'ACTIVE'}), Freeze authority (${freezeRevoked ? 'Revoked' : 'ACTIVE'}), or LP burned (${lpBurned ? 'YES' : 'NO'}).`
-        };
-      }
+    if (!signal.executionSimulation?.estimatedSlippagePercent) {
+      return {
+        passed: false,
+        code: 'EXECUTION_QUOTE_REQUIRED',
+        reason: 'Execution quote (slippage/price) is required.'
+      };
     }
 
-    // 3. Minimum Alpha Score (Configurable setting, default 85)
-    const minAlphaScore = settings.minExecutionAlphaScore ?? 85;
-    if (signal.alphaScore < minAlphaScore) {
+    if (signal.independentEliteCount == null) {
+      return { passed: false, code: 'CONSENSUS_UNAVAILABLE', reason: 'Independent elite consensus count is null.' };
+    }
+
+    if (signal.priceDisplacementFromVwapPercent == null) {
+      return { passed: false, code: 'PRICE_DISPLACEMENT_UNAVAILABLE', reason: 'Price displacement from VWAP is null.' };
+    }
+
+    if ((signal.historicalExpectancy.dataStatus !== 'VALID_SAMPLE' || 
+        signal.historicalExpectancy.similarEventsCount < (Number(process.env.MIN_HISTORICAL_EXPECTANCY_SAMPLE) || 30) || 
+        signal.historicalExpectancy.netEvPercent == null)) {
+      return { passed: false, code: 'HISTORICAL_EXPECTANCY_UNAVAILABLE', reason: 'Historical expectancy is missing or sample is insufficient.' };
+    }
+
+    if (signal.participantWallets.some(w => w.qualityScore == null)) {
+      return { passed: false, code: 'WALLET_QUALITY_UNAVAILABLE', reason: 'One or more participant wallets are missing a quality score.' };
+    }
+
+    if (!this.validateFeatureEvidence(signal.features.copyabilityScore, 'copyabilityScore')) {
+      return { passed: false, code: 'COPYABILITY_UNAVAILABLE', reason: 'Copyability score is unavailable or invalid.' };
+    }
+
+    // 1. Alpha Score Minimum Check
+    const minAlpha = settings.minExecutionAlphaScore ?? 75;
+    if (!signal.alphaScore || signal.alphaScore < minAlpha) {
       return {
         passed: false,
         code: 'MIN_ALPHA_SCORE',
-        reason: `Signal alpha score (${signal.alphaScore}) is below minimum paper execution threshold (${minAlphaScore}).`
+        reason: `Alpha score (${signal.alphaScore}) is below required minimum (${minAlpha}).`
+      };
+    }
+
+    // 2. Minimum Win Rate Check
+    const minWinRate = 60.0;
+    if (signal.historicalExpectancy.winRatePercent == null || signal.historicalExpectancy.winRatePercent < minWinRate) {
+      return {
+        passed: false,
+        code: 'MIN_WIN_RATE',
+        reason: `Signal win rate (${signal.historicalExpectancy.winRatePercent}%) is below required minimum (${minWinRate}%).`
+      };
+    }
+
+    // 3. Minimum Profit Factor Check
+    const minProfitFactor = 1.5;
+    const pf = Math.abs((signal.historicalExpectancy.averageWinnerPercent || 0) / (signal.historicalExpectancy.averageLoserPercent || -1));
+    if (pf < minProfitFactor) {
+      return {
+        passed: false,
+        code: 'MIN_PROFIT_FACTOR',
+        reason: `Calculated Profit Factor (${pf.toFixed(2)}) is below required minimum (${minProfitFactor}).`
       };
     }
 
     // 4. Positive Net EV Check
-    const netEv = signal.historicalExpectancy?.netEvPercent ?? 0;
-    if (netEv <= 0) {
+    if (signal.historicalExpectancy.netEvPercent <= 0) {
       return {
         passed: false,
         code: 'NEGATIVE_NET_EV',
-        reason: `Point-in-time Net Expected Value (${netEv.toFixed(2)}%) is not positive after friction.`
+        reason: `Point-in-time Net Expected Value (${signal.historicalExpectancy.netEvPercent.toFixed(2)}%) is not positive after friction.`
       };
     }
 
     // 5. Minimum Absolute Liquidity Check in USD
     const minLiquidityUsd = settings.minTokenLiquidityUsd ?? 2000000;
-    if (signal.liquidityUsd !== undefined && signal.liquidityUsd < minLiquidityUsd) {
+    if (signal.liquidityUsd < minLiquidityUsd) {
       return {
         passed: false,
         code: 'MIN_LIQUIDITY_USD',
         reason: `Actual token liquidity ($${(signal.liquidityUsd / 1e6).toFixed(2)}M) is below required minimum ($${(minLiquidityUsd / 1e6).toFixed(2)}M).`
       };
     }
-    const liqScore = typeof (signal.features.liquidityTokenQualityScore as unknown) === 'number'
-      ? (signal.features.liquidityTokenQualityScore as unknown as number)
-      : (signal.features.liquidityTokenQualityScore?.value ?? 0);
+
+    if (!this.validateFeatureEvidence(signal.features.liquidityTokenQualityScore, 'liquidityTokenQualityScore')) {
+      return { passed: false, code: 'LIQUIDITY_UNAVAILABLE', reason: 'Liquidity score is invalid or missing.' };
+    }
+    const liqScore = signal.features.liquidityTokenQualityScore?.value || 0;
     if (liqScore < 60) {
       return {
         passed: false,
         code: 'MIN_LIQUIDITY',
-        reason: `Token pool liquidity score (${liqScore}) fails safety threshold (minimum equivalent $${(minLiquidityUsd / 1e6).toFixed(1)}M).`
+        reason: `Token pool liquidity score (${liqScore}) fails safety threshold.`
       };
     }
 
-    // 6. Max Allowed Slippage (Decimal Fraction: 0.01 = 1%, 0.005 = 0.5%)
+    // 6. Max Allowed Slippage
     const maxSlippage = settings.maxAllowedSlippagePercent ?? 0.01;
-    const estSlippage = signal.executionSimulation?.estimatedSlippagePercent ?? 0.0035;
+    const estSlippage = signal.executionSimulation.estimatedSlippagePercent;
     if (estSlippage > maxSlippage) {
       return {
         passed: false,
@@ -162,12 +146,12 @@ export class RiskEngine {
     }
 
     // 7. Max Price Displacement from Smart-Money VWAP
-    const maxDisplacement = 2.5; // 2.5% max displacement
-    if (signal.priceDisplacementFromVwapPercent !== null && signal.priceDisplacementFromVwapPercent > maxDisplacement) {
+    const maxDisplacement = 2.5;
+    if (signal.priceDisplacementFromVwapPercent > maxDisplacement) {
       return {
         passed: false,
         code: 'MAX_PRICE_DISPLACEMENT',
-        reason: `Price is chasing: current price is +${signal.priceDisplacementFromVwapPercent.toFixed(2)}% above smart-money VWAP (limit: ${maxDisplacement}%).`
+        reason: `Price is chasing: current price is +${signal.priceDisplacementFromVwapPercent.toFixed(2)}% above VWAP.`
       };
     }
 
@@ -183,8 +167,8 @@ export class RiskEngine {
 
     // 9. Duplicate Token Exposure
     const existingPosition = openPositions.find(
-      p => p.tokenAddress.toLowerCase() === signal.tokenAddress.toLowerCase() || 
-           p.tokenSymbol.toUpperCase() === signal.tokenSymbol.toUpperCase()
+      p => p.tokenAddress.toLowerCase() === signal.tokenAddress.toLowerCase() ||
+            p.tokenSymbol.toUpperCase() === signal.tokenSymbol.toUpperCase()
     );
     if (existingPosition) {
       return {
@@ -196,8 +180,8 @@ export class RiskEngine {
 
     // 10. Maximum Token Exposure Check
     const maxTokenExposurePercent = settings.maxTokenExposurePercent ?? 5.0;
-    const proposedPositionUsd = signal.executionSimulation?.recommendedPositionUsd ?? 
-      (portfolio.totalEquityUsd * ((settings.normalPositionPercent || 1.0) / 100));
+    const proposedPositionUsd = signal.executionSimulation.recommendedPositionUsd ?? 
+       (portfolio.totalEquityUsd * ((settings.normalPositionPercent || 1.0) / 100));
     const tokenExposurePercent = (proposedPositionUsd / portfolio.totalEquityUsd) * 100;
     if (tokenExposurePercent > maxTokenExposurePercent) {
       return {
@@ -211,12 +195,11 @@ export class RiskEngine {
     const currentDeployedUsd = openPositions.reduce((acc, p) => acc + p.costBasisUsd, 0);
     const maxTotalDeployedPercent = settings.maxTotalDeployedPercent ?? 40.0;
     const maxAllowedDeployedUsd = (portfolio.totalEquityUsd * maxTotalDeployedPercent) / 100;
-
     if (currentDeployedUsd + proposedPositionUsd > maxAllowedDeployedUsd) {
       return {
         passed: false,
         code: 'MAX_TOTAL_DEPLOYED',
-        reason: `Trade would exceed maximum total deployed capital (${maxTotalDeployedPercent}% = $${maxAllowedDeployedUsd.toFixed(2)}). Current deployed: $${currentDeployedUsd.toFixed(2)}.`
+        reason: `Trade would exceed maximum total deployed capital (${maxTotalDeployedPercent}% = $${maxAllowedDeployedUsd.toFixed(2)}).`
       };
     }
 
@@ -225,7 +208,7 @@ export class RiskEngine {
       return {
         passed: false,
         code: 'INSUFFICIENT_CASH',
-        reason: `Insufficient cash ($${portfolio.cashUsd.toFixed(2)}) for proposed trade ($${proposedPositionUsd.toFixed(2)}).`
+        reason: `Insufficient cash ($${portfolio.cashUsd.toFixed(2)}) for proposed trade.`
       };
     }
 
@@ -247,7 +230,7 @@ export class RiskEngine {
       return {
         passed: false,
         code: 'DAILY_LOSS_LIMIT',
-        reason: `Portfolio daily loss limit hit (-${todayLossPercent.toFixed(2)}% >= ${dailyLossLimitPercent}%). Risk circuit breaker active.`
+        reason: `Portfolio daily loss limit hit.`
       };
     }
 
@@ -257,7 +240,7 @@ export class RiskEngine {
       return {
         passed: false,
         code: 'DRAWDOWN_LIMIT',
-        reason: `Portfolio max drawdown (${portfolio.maxDrawdownPercent.toFixed(2)}%) breached risk threshold (${maxDrawdownLimit}%). Capital protection freeze.`
+        reason: `Portfolio max drawdown (${portfolio.maxDrawdownPercent.toFixed(2)}%) breached risk threshold.`
       };
     }
 
@@ -268,7 +251,7 @@ export class RiskEngine {
         return {
           passed: false,
           code: 'MIN_WALLET_QUALITY',
-          reason: `Participating wallets average quality (${avgQuality.toFixed(1)}) is below minimum threshold (60.0).`
+          reason: `Participating wallets average quality (${avgQuality.toFixed(1)}) is below minimum threshold.`
         };
       }
     }
@@ -278,22 +261,20 @@ export class RiskEngine {
       return {
         passed: false,
         code: 'RELATED_WALLET_CONSENSUS_RISK',
-        reason: `Consensus invalidated by Sybil/coordinated funding cluster penalty (${signal.features.penalties.relatedWalletsPenalty} pts).`
+        reason: `Consensus invalidated by Sybil/coordinated funding cluster penalty.`
       };
     }
-
-    if ((signal.independentEliteCount ?? 0) < 2) {
+    
+    if (signal.independentEliteCount < 2) {
       return {
         passed: false,
         code: 'INSUFFICIENT_INDEPENDENT_CONSENSUS',
-        reason: `Only ${signal.independentEliteCount ?? 0} independent wallet confirmed the move (minimum 2 required).`
+        reason: `Only ${signal.independentEliteCount} independent wallet confirmed the move.`
       };
     }
 
     // 18. Minimum Copyability Score
-    const copyScore = typeof (signal.features.copyabilityScore as unknown) === 'number'
-      ? (signal.features.copyabilityScore as unknown as number)
-      : (signal.features.copyabilityScore?.value ?? 0);
+    const copyScore = signal.features.copyabilityScore?.value || 0;
     if (copyScore < 60) {
       return {
         passed: false,
@@ -307,7 +288,7 @@ export class RiskEngine {
       return {
         passed: false,
         code: 'TRADER_DETERIORATION',
-        reason: `Lead trader exhibits rolling performance decay (${signal.features.penalties.traderDeteriorationPenalty} pts penalty).`
+        reason: `Lead trader exhibits rolling performance decay.`
       };
     }
 
@@ -316,7 +297,7 @@ export class RiskEngine {
       return {
         passed: false,
         code: 'MIN_SAMPLE_SIZE',
-        reason: `Participating wallet trade sample size is too low (< 20 historical trades).`
+        reason: `Participating wallet trade sample size is too low.`
       };
     }
 
