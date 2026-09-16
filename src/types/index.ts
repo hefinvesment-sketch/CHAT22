@@ -255,21 +255,22 @@ export interface AlphaSignal {
   priceDisplacementFromVwapPercent: number;
   currentRegime: MarketRegime;
   historicalExpectancy: {
+    dataStatus: 'INSUFFICIENT_SAMPLE' | 'VALID_SAMPLE';
     similarEventsCount: number;
-    winRatePercent: number;
-    averageWinnerPercent: number;
-    averageLoserPercent: number;
-    medianReturnPercent: number;
-    grossEvPercent: number;
-    executionCostPercent: number;
-    netEvPercent: number;
-    maxFavorableExcursionPercent: number;
-    maxAdverseExcursionPercent: number;
-    return5mPercent: number;
-    return15mPercent: number;
-    return1hPercent: number;
-    return4hPercent: number;
-    return24hPercent: number;
+    winRatePercent: number | null;
+    averageWinnerPercent: number | null;
+    averageLoserPercent: number | null;
+    medianReturnPercent: number | null;
+    grossEvPercent: number | null;
+    executionCostPercent: number | null;
+    netEvPercent: number | null;
+    maxFavorableExcursionPercent: number | null;
+    maxAdverseExcursionPercent: number | null;
+    return5mPercent: number | null;
+    return15mPercent: number | null;
+    return1hPercent: number | null;
+    return4hPercent: number | null;
+    return24hPercent: number | null;
   };
   executionSimulation?: {
     sourcePrice: number;
@@ -555,6 +556,14 @@ export interface StrategyDecisionRecord {
   alphaScore: number | null;
   allocatedPositionUsd: number | null;
   featureSnapshot: Record<string, unknown>;
+}
+
+export interface StrategyEquitySnapshot {
+  id?: string;
+  strategyKey: string;
+  timestamp: string;
+  equityUsd: number;
+  drawdownPercent: number;
 }
 
 export interface StrategyPortfolio extends PaperPortfolio {

@@ -32,7 +32,7 @@ export const PaperPortfolioView: React.FC<PaperPortfolioViewProps> = ({
 }) => {
   const isTotalPos = portfolio.totalReturnPercent >= 0;
   const [showAuditModal, setShowAuditModal] = useState(false);
-  const [auditData, setAuditData] = useState<any>(null);
+  const [auditData, setAuditData] = useState<unknown>(null);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
 
   // Exact double-entry ledger equation verification

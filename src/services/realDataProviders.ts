@@ -40,7 +40,7 @@ export interface JupiterQuoteRecord {
   outAmountUi: number;
   executionPrice: number; // inAmountUi / outAmountUi
   priceImpactPct: number;
-  routePlan: any[];
+  routePlan: unknown[];
   slippageBps: number;
   latencyMs: number;
   timestamp: string;
@@ -108,7 +108,7 @@ export class RealDataProviders {
         return { ok: true, latencyMs };
       }
       return { ok: false, latencyMs, error: json?.error?.message || 'Unhealthy RPC response' };
-    } catch (err: any) {
+    } catch (err: unknown) {
       return { ok: false, latencyMs: 0, error: err?.message || 'Unreachable' };
     }
   }
@@ -278,7 +278,7 @@ export class RealDataProviders {
       };
       this.healthMap['Helius'] = record;
       return record;
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Network error reaching Helius, check if Solana RPC failover works
       const workingRpc = await this.getWorkingSolanaRpcUrl();
       const rpcProbe = await this.probeSolanaRpc(workingRpc);
@@ -356,7 +356,7 @@ export class RealDataProviders {
         this.healthMap['Birdeye'] = record;
         return record;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const record: ProviderHealthRecord = {
         providerName: 'Birdeye',
         status: 'UNREACHABLE',
@@ -445,7 +445,7 @@ export class RealDataProviders {
       };
       this.healthMap['Solana RPC'] = record;
       return record;
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Fallback check on exception
       const fallbackProbe = await this.probeSolanaRpc('https://api.mainnet-beta.solana.com');
       if (fallbackProbe.ok) {
@@ -560,7 +560,7 @@ export class RealDataProviders {
         this.healthMap['Jupiter'] = record;
         return record;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const record: ProviderHealthRecord = {
         providerName: 'Jupiter',
         status: 'UNREACHABLE',
@@ -579,7 +579,7 @@ export class RealDataProviders {
     outputMint: string,
     amountRaw: number,
     slippageBps: number = 50
-  ): Promise<any> {
+  ): Promise<unknown> {
     if (process.env.APP_MODE === 'live_paper' && process.env.LIVE_PAPER_EXECUTION_ENABLED !== 'true') {
       throw new Error('Jupiter execution blocked: LIVE_PAPER_EXECUTION_ENABLED is false');
     }
@@ -634,7 +634,7 @@ export class RealDataProviders {
         latencyMs,
         timestamp: new Date().toISOString()
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.healthMap['Jupiter'] = {
         providerName: 'Jupiter',
         status: 'DEGRADED',
@@ -750,7 +750,7 @@ export class RealDataProviders {
         dataFreshnessSeconds: Math.round((Date.now() - (json.data.updateUnixTime * 1000 || Date.now())) / 1000),
         confidence: 0.99
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Try live Jupiter Price V3 before throwing or falling back
       const jupPrice = await this.fetchJupiterPrice(tokenAddress);
       if (jupPrice) {
@@ -795,7 +795,7 @@ export class RealDataProviders {
 
   // 8. Full Provider System Audit
 
-  public static async getHeliusAsset(mintAddress: string): Promise<any> {
+  public static async getHeliusAsset(mintAddress: string): Promise<unknown> {
     const url = await this.getWorkingSolanaRpcUrl();
     const response = await fetch(url, {
       method: 'POST',
@@ -811,7 +811,7 @@ export class RealDataProviders {
     return data.result || null;
   }
 
-  public static async getBirdeyeTokenInfo(mintAddress: string): Promise<any> {
+  public static async getBirdeyeTokenInfo(mintAddress: string): Promise<unknown> {
     const apiKey = process.env.BIRDEYE_API_KEY;
     if (!apiKey) return null;
     const response = await fetch(`https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`, {

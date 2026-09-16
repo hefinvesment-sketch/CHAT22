@@ -40,7 +40,7 @@ interface DashboardViewProps {
   parallelBots: PaperPortfolio[];
   onSelectSignal: (signal: AlphaSignal) => void;
   onExecuteTrade: (signalId: string) => void;
-  onNavigateToTab: (tab: any) => void;
+  onNavigateToTab: (tab: unknown) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -167,7 +167,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: '4px', fontSize: '11px' }} 
                   itemStyle={{ color: '#e4e4e7' }}
-                  formatter={(val: any) => [`$${Number(val).toFixed(2)}`, '']}
+                  formatter={(val: unknown) => [`$${Number(val).toFixed(2)}`, '']}
                 />
                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                 <Line type="monotone" dataKey="equity" name="AlphaGraph ($5k)" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3 }} />

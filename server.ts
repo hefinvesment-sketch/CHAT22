@@ -106,9 +106,9 @@ let tradeHistory: PaperTradeRecord[] = [];
 let signals: AlphaSignal[] = [];
 let wallets: WalletProfile[] = [];
 let tokens: TokenMarketData[] = [];
-let liveEvents: any[] = [];
+let liveEvents: unknown[] = [];
 let systemSettings = { ...INITIAL_SETTINGS };
-let parallelBots = [...MOCK_PARALLEL_BOTS];
+const parallelBots = [...MOCK_PARALLEL_BOTS];
 let systemReady = false;
 let missingComponents: string[] = [];
 let heliusWorker: HeliusIngestionWorker | null = null;
@@ -144,7 +144,7 @@ export async function getCachedProviderHealth(
       cachedProviderHealth = records;
       lastProviderHealthCheck = Date.now();
       return records;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('[ProviderHealthCache]: Refresh failed safely:', RealDataProviders.sanitizeMessage(err?.message || 'Unknown error'));
       if (cachedProviderHealth.length > 0) {
         return cachedProviderHealth;
@@ -167,7 +167,7 @@ export function resetProviderHealthCacheForTesting() {
 async function initializeState() {
   try {
     await storage.init();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.warn(`[Storage Init Warning] Mode ${APP_MODE}: ${err.message}`);
   }
 
@@ -230,7 +230,7 @@ async function initializeState() {
         currentPortfolio = cleanLivePortfolio;
         await storage.savePortfolio(cleanLivePortfolio);
       }
-    } catch (e) {
+    } catch (_e) {
       currentPortfolio = cleanLivePortfolio;
     }
 
@@ -238,7 +238,7 @@ async function initializeState() {
     try {
       await StrategyLabEngine.init(storage, APP_MODE);
       console.log(`[Strategy Lab]: Successfully initialized 10 parallel strategy portfolios.`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('[Strategy Lab]: Initialization warning:', err.message);
     }
 
@@ -338,7 +338,7 @@ async function initializeState() {
                 });
               }
             }
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.warn('[Continuous MTM Worker]:', err.message);
           }
         }
@@ -346,7 +346,7 @@ async function initializeState() {
         // Strategy Lab Mark-to-Market
         try {
           await StrategyLabEngine.markToMarket(storage, APP_MODE);
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.warn('[StrategyLabEngine MTM]:', err.message);
         }
       }, 4000);
@@ -377,7 +377,7 @@ async function initializeState() {
 
     try {
       await StrategyLabEngine.init(storage, APP_MODE);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.warn('[StrategyLabEngine demo init]:', e.message);
     }
 
@@ -400,7 +400,7 @@ async function initializeState() {
         currentPortfolio.unrealizedPnlUsd = fixed.reconstructedUnrealizedPnlUsd;
         currentPortfolio.totalEquityUsd = fixed.reconstructedEquityUsd;
       }
-    } catch (e) {
+    } catch (_e) {
       console.error('[Startup Reconcile Error]:', e);
     }
   }
@@ -588,7 +588,7 @@ app.get('/api/strategy-lab/decisions', async (req: Request, res: Response) => {
     const limit = Math.min(Number(req.query.limit) || 50, 100);
     const allDecisions = await storage.getStrategyDecisions(limit);
     res.json(allDecisions);
-  } catch (err: any) {
+  } catch (err: unknown) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -637,7 +637,7 @@ app.get('/api/wallets/:address', (req: Request, res: Response) => {
   const wallet = wallets.find(w => w.address.toLowerCase() === req.params.address.toLowerCase());
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
-  let relationships: any[] = [];
+  let relationships: unknown[] = [];
   if (APP_MODE === 'demo') {
     relationships = MOCK_WALLET_RELATIONSHIPS.filter(
       r => r.sourceWallet === wallet.address || r.targetWallet === wallet.address
@@ -661,7 +661,7 @@ app.get('/api/wallet-graph', (req: Request, res: Response) => {
     isEligible: w.isEligibleSmartMoney
   }));
 
-  let edges: any[] = [];
+  let edges: unknown[] = [];
   if (APP_MODE === 'demo') {
     edges = MOCK_WALLET_RELATIONSHIPS.map(r => ({
       id: r.id,
@@ -838,7 +838,7 @@ const handleCloseTradeRequest = async (req: Request, res: Response) => {
         if (quote.outAmountUi > 0 && pos.amount > 0) {
           exitPrice = quote.outAmountUi / pos.amount;
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         return res.status(503).json({
           error: 'EXIT_QUOTE_UNAVAILABLE',
           message: `Cannot execute exit without real executable quote: ${err.message}`
@@ -882,7 +882,7 @@ const handleCloseTradeRequest = async (req: Request, res: Response) => {
       portfolio: currentPortfolio,
       exitBreakdown: result.exitBreakdown
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     res.status(500).json({ error: err.message });
   }
 };
@@ -959,7 +959,7 @@ app.post('/api/reset-portfolio', async (req: Request, res: Response) => {
     tradeHistory = [];
     try {
       await storage.savePortfolio(currentPortfolio);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('[Reset Portfolio] Storage error:', err.message);
     }
     return res.json({ success: true, portfolio: currentPortfolio, mode: 'live_paper' });
@@ -1012,7 +1012,7 @@ app.post('/api/backtests/run', (req: Request, res: Response) => {
     const config: BacktestConfig = req.body;
     const result = BacktestEngine.runBacktest(config);
     res.json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
     res.status(400).json({ error: err.message });
   }
 });
@@ -1067,7 +1067,7 @@ Analyze the following request with rigorous mathematical precision, objective ri
     res.json({
       analysis: `${demoWarning}${response.text || 'No quantitative conclusion generated.'}`
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Gemini API error:', err);
     res.json({
       analysis: 'AI analyst unavailable. No quantitative conclusion generated.'

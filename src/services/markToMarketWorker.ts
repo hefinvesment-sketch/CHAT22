@@ -57,7 +57,7 @@ export class MarkToMarketWorker {
             priceSource = 'BIRDEYE_STALE';
           }
         }
-      } catch (err) {
+      } catch (err: unknown) {
         priceStatus = 'UNAVAILABLE';
       }
 
@@ -104,8 +104,8 @@ export class MarkToMarketWorker {
               proceedsUsd = quote.outAmountUi;
               slippagePaid = proceedsUsd * (quote.priceImpactPct / 100);
             }
-          } catch (err: any) {
-            console.warn(`[MTM Worker]: Real Jupiter exit quote failed for ${pos.tokenSymbol}: ${err.message}. Keeping position open.`);
+          } catch (err: unknown) {
+            console.warn(`[MTM Worker]: Real Jupiter exit quote failed for ${pos.tokenSymbol}: ${(err as Error).message}. Keeping position open.`);
             const updatedPos: PaperPosition = {
               ...pos,
               currentPrice,
@@ -266,12 +266,12 @@ export class MarkToMarketWorker {
         quoteLatencyMs = quote.latencyMs;
         slippagePct = (quote.slippageBps || 35) / 10000;
       }
-    } catch (err) {
+    } catch (err: unknown) {
       // In live_paper mode, if quote fails, reject the trade rather than fabricating a fill!
       if (process.env.APP_MODE === 'live_paper') {
         return {
           success: false,
-          rejectionReason: `Executable Jupiter quote unavailable in live paper mode: ${(err as any).message}`,
+          rejectionReason: `Executable Jupiter quote unavailable in live paper mode: ${(err as unknown).message}`,
           rejectionCode: 'PROVIDER_UNAVAILABLE'
         };
       }

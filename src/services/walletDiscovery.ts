@@ -15,7 +15,7 @@ export class WalletDiscoveryService {
    * Discovers and evaluates Solana DEX wallets from real on-chain transaction blocks.
    */
   public static async discoverWalletsFromActivity(
-    rawTransactions: any[],
+    rawTransactions: unknown[],
     settings: SystemSettings,
     storage: StorageAdapter
   ): Promise<WalletProfile[]> {
@@ -27,7 +27,7 @@ export class WalletDiscoveryService {
     };
 
     // 1. Extract unique active wallets from transactions
-    const walletTxMap: Map<string, any[]> = new Map();
+    const walletTxMap: Map<string, unknown[]> = new Map();
     for (const tx of rawTransactions) {
       const parsed = HeliusTransactionParser.parseTransaction(tx);
       if (parsed.walletAddress && parsed.walletAddress !== 'UNKNOWN_WALLET') {

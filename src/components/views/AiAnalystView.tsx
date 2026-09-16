@@ -84,7 +84,7 @@ export const AiAnalystView: React.FC<AiAnalystViewProps> = ({
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setAnalysisHistory([
         ...newHistory,
         {

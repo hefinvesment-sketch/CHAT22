@@ -1,5 +1,4 @@
 import { ParsedTransactionRecord } from './heliusParser';
-import { WalletProfile, WalletCopyability } from '../types';
 
 export interface ReconstructedPosition {
   tokenAddress: string;

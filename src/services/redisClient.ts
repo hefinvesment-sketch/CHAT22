@@ -118,7 +118,7 @@ export class RedisClientService {
           message: `Unexpected PING response: ${pong}`
         };
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       return {
         connected: false,
         latencyMs: 0,
@@ -144,7 +144,7 @@ export class RedisClientService {
   public static async set(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
     try {
       const client = this.getClient();
-      if (!client) return null as any;
+      if (!client) return null as unknown;
       if (client.status === 'wait') await client.connect();
       if (ttlSeconds && ttlSeconds > 0) {
         await client.set(key, value, 'EX', ttlSeconds);

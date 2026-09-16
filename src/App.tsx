@@ -70,7 +70,7 @@ export default function App() {
   const [appMode, setAppMode] = useState<string>('live_paper');
   const [systemReady, setSystemReady] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
-  const [providers, setProviders] = useState<any[]>([]);
+  const [providers, setProviders] = useState<unknown[]>([]);
   const [ingestionStats, setIngestionStats] = useState<{
     isRunning: boolean;
     transactionsIngested: number;
@@ -123,7 +123,7 @@ export default function App() {
         if (data.parallelBots) setParallelBots(data.parallelBots || []);
         if (data.liveEvents) setLiveEvents(data.liveEvents || []);
         setIsInitializing(false);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!isMounted) return;
         console.warn('[Real State Sync]:', err.message);
       }
@@ -163,7 +163,7 @@ export default function App() {
       } else if (data.error) {
         showToast(`Trade Error: ${data.error}`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       showToast(`Execution Error: ${err.message}`);
     }
   };
@@ -185,7 +185,7 @@ export default function App() {
       } else if (data.error) {
         showToast(`Close Error: ${data.error}`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       showToast(`Close Error: ${err.message}`);
     }
   };
@@ -201,7 +201,7 @@ export default function App() {
         setTradeHistory([]);
         showToast('Portfolio reset to $5,000.00 base capital');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       showToast(`Reset Error: ${err.message}`);
     }
   };

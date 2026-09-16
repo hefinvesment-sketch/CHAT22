@@ -1,11 +1,6 @@
 import { 
-  AlphaSignal, 
-  AlphaSignalFeatureBreakdown, 
-  MarketRegime, 
   SignalState, 
   SystemSettings, 
-  TraderGenome, 
-  WalletProfile,
   FeatureEvidence
 } from '../types';
 
@@ -212,7 +207,6 @@ export class AlphaEngine {
    * Minus penalties: Crowding, related wallets, high slippage, trader deterioration, etc.
    */
   public static computeAlphaScore(
-    features: AlphaSignalFeatureBreakdown,
     appMode: string,
     settings?: SystemSettings
   ): {
@@ -252,7 +246,7 @@ export class AlphaEngine {
       if (allMandatoryFeatures.some(f => f === null)) {
         return {
           alphaScore: null,
-          signalState: 'INSUFFICIENT DATA' as any, // Mapped to WATCH or similar upstream if necessary, but 'INSUFFICIENT DATA' conveys intent
+          signalState: 'INSUFFICIENT DATA' as unknown, // Mapped to WATCH or similar upstream if necessary, but 'INSUFFICIENT DATA' conveys intent
           dataStatus: 'INSUFFICIENT_DATA'
         };
       }
@@ -300,7 +294,7 @@ export class AlphaEngine {
         signalState,
         dataStatus: 'COMPLETE'
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err.message.includes('SYNTHETIC_DATA_BLOCKED_IN_LIVE_MODE')) {
         return {
           alphaScore: null,

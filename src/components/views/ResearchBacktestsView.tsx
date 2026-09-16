@@ -72,7 +72,7 @@ export const ResearchBacktestsView: React.FC = () => {
               <Tooltip 
                 contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: '4px', fontSize: '11px' }} 
                 itemStyle={{ color: '#e4e4e7' }}
-                formatter={(v: any) => [`${v}%`, '']}
+                formatter={(v: unknown) => [`${v}%`, '']}
               />
               <Legend wrapperStyle={{ fontSize: '11px' }} />
               <Bar dataKey="grossReturn" name="Theoretical Gross Alpha %" fill="#38bdf8" radius={[2, 2, 0, 0]} />

@@ -130,7 +130,7 @@ export class HeliusIngestionWorker {
       }
 
       const sigData = await sigRes.json();
-      const rawSignatures: any[] = sigData.result || [];
+      const rawSignatures: unknown[] = sigData.result || [];
       if (rawSignatures.length === 0) {
         return;
       }
@@ -165,7 +165,7 @@ export class HeliusIngestionWorker {
       }
 
       // 2. Fetch enhanced parsed transactions from Helius (with fallback to direct Solana RPC)
-      let rawTxs: any[] = [];
+      let rawTxs: unknown[] = [];
       if (apiKey) {
         try {
           const enhRes = await fetch(`https://api.helius.xyz/v0/transactions/?api-key=${apiKey}`, {
@@ -356,7 +356,7 @@ export class HeliusIngestionWorker {
 
           const { alphaScore, signalState, dataStatus } = AlphaEngine.computeAlphaScore(features, ('live_paper'), this.systemSettings);
           
-          let simulatedFill = undefined;
+          const simulatedFill = undefined;
           if (dataStatus === 'COMPLETE') {
              // In real live mode this would only run if evidence is complete.
           }
@@ -371,16 +371,16 @@ export class HeliusIngestionWorker {
             signalState,
             decision: 'WATCHED',
             liquidityUsd: tokenData.liquidityUsd || undefined,
-            independentEliteCount: null as any,
-            totalSmartMoneyInflowUsd: null as any,
+            independentEliteCount: null,
+            totalSmartMoneyInflowUsd: null,
             priceAtSignal: realPrice,
-            priceDisplacementFromVwapPercent: null as any,
-            currentRegime: null as any,
+            priceDisplacementFromVwapPercent: null,
+            currentRegime: null,
             features,
             participantWallets: [{
               address: tx.walletAddress,
-              qualityScore: null as any,
-              convictionMultiplier: null as any,
+              qualityScore: null,
+              convictionMultiplier: null,
               tradeUsd: tx.usdValue,
               isIndependent: false
             }],
@@ -399,8 +399,7 @@ export class HeliusIngestionWorker {
               return15mPercent: 0,
               return1hPercent: 0,
               return4hPercent: 0,
-              return24hPercent: 0
-            },
+              return24hPercent: 0, dataStatus: "VALID_SAMPLE" },
             executionSimulation: simulatedFill
           };
 
@@ -420,7 +419,7 @@ export class HeliusIngestionWorker {
           liveEvent: ingestionEvent
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('[HeliusIngestionWorker] Error in poll cycle:', err.message);
     } finally {
       this.isPolling = false;

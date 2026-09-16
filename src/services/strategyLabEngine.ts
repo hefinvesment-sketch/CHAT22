@@ -865,7 +865,7 @@ export class StrategyLabEngine {
             latencyMs = rawQuote.latencyMs;
             slippagePercent = rawQuote.priceImpactPct;
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           const record: StrategyDecisionRecord = {
             id: decisionId,
             strategyKey: def.key,
@@ -1033,7 +1033,7 @@ export class StrategyLabEngine {
                 proceedsUsd = quote.outAmountUi;
                 slippagePaid = proceedsUsd * (quote.priceImpactPct / 100);
               }
-            } catch (err: any) {
+            } catch (err: unknown) {
               // Exit quote unavailable; keep position open with UNAVAILABLE exit flag
               console.warn(`[StrategyLab]: Exit quote unavailable for ${pos.tokenSymbol}: ${err.message}`);
               remainingPositions.push(pos);

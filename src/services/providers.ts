@@ -53,7 +53,7 @@ export interface TokenRiskProvider {
 }
 
 export interface BlockchainStreamProvider {
-  subscribeToSmartMoneySwaps(callback: (swapEvent: any) => void): () => void;
+  subscribeToSmartMoneySwaps(callback: (swapEvent: unknown) => void): () => void;
   getConnectionStatus(): 'CONNECTED' | 'RECONNECTING' | 'DISCONNECTED';
 }
 
@@ -97,7 +97,8 @@ export class RealisticSolanaExecutionSimulator implements ExecutionSimulator {
     const detectionPrice = Number((sourcePrice * (1 + latencyImpactPercent)).toFixed(6));
 
     // Dynamic pool slippage calculation based on token liquidity
-    const poolLiquidity = (signal.features.liquidityTokenQualityScore?.value || 0) * 100000;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const poolLiquidity = (signal.features.liquidityTokenQualityScore?.value || 0) * 100000;
     const estimatedSlippagePercent = Number((0.0035 + (Math.random() * 0.0025)).toFixed(4));
     
     const dexFeePercent = 0.0025; // 25 bps Jupiter / Raydium routing fee

@@ -22,7 +22,7 @@ describe('Provider Health Caching, Configurable Intervals, and Secret Protection
     // Start Express app on ephemeral port for real HTTP testing
     await new Promise<void>((resolve) => {
       server = app.listen(0, '127.0.0.1', () => {
-        const addr = server.address() as any;
+        const addr = server.address() as unknown;
         baseUrl = `http://127.0.0.1:${addr.port}`;
         resolve();
       });
@@ -31,8 +31,8 @@ describe('Provider Health Caching, Configurable Intervals, and Secret Protection
 
   afterAll(async () => {
     if (server) {
-      if (typeof (server as any).closeAllConnections === 'function') {
-        (server as any).closeAllConnections();
+      if (typeof (server as unknown).closeAllConnections === 'function') {
+        (server as unknown).closeAllConnections();
       }
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -54,7 +54,7 @@ describe('Provider Health Caching, Configurable Intervals, and Secret Protection
       saveWallet: vi.fn(),
       saveToken: vi.fn()
     };
-    const worker = new HeliusIngestionWorker(mockStorage as any, {} as any);
+    const worker = new HeliusIngestionWorker(mockStorage as unknown, {} as unknown);
     expect(worker.pollIntervalMs).toBe(600000);
     expect(worker.getStatus().pollIntervalMs).toBe(600000);
   });

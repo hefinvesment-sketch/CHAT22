@@ -255,7 +255,7 @@ export const StrategyLabView: React.FC<StrategyLabViewProps> = ({ bots = [] }) =
                       <td className="py-2.5 text-zinc-200 font-semibold">{(bot.profitFactor ?? 0).toFixed(2)}x</td>
                       <td className="py-2.5 text-zinc-300">{(bot.maxDrawdownPercent ?? 0).toFixed(1)}%</td>
                       <td className="py-2.5 text-cyan-400 font-semibold">{(bot.sharpeRatio ?? 0).toFixed(2)}</td>
-                      <td className="py-2.5 text-zinc-400">{bot.totalTradesCount ?? (bot as any).tradeCount ?? 0}</td>
+                      <td className="py-2.5 text-zinc-400">{bot.totalTradesCount ?? (bot as unknown).tradeCount ?? 0}</td>
                       <td className="py-2.5 text-right">
                         <button 
                           onClick={(e) => {
@@ -310,7 +310,7 @@ export const StrategyLabView: React.FC<StrategyLabViewProps> = ({ bots = [] }) =
                         <Tooltip 
                           contentStyle={{ backgroundColor: '#18181b', borderColor: '#3f3f46', borderRadius: '4px', fontSize: '11px' }} 
                           itemStyle={{ color: '#e4e4e7' }}
-                          formatter={(val: any) => [`$${Number(val).toFixed(2)}`, 'Equity']}
+                          formatter={(val: unknown) => [`$${Number(val).toFixed(2)}`, 'Equity']}
                         />
                         <Line type="monotone" dataKey="equity" stroke="#10b981" strokeWidth={2.5} dot={{ r: 2 }} />
                       </RechartsLine>

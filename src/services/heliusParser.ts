@@ -49,7 +49,7 @@ export class HeliusTransactionParser {
   /**
    * Parse a raw Helius transaction (enhanced webhook or RPC response)
    */
-  public static parseTransaction(tx: any, targetWallet?: string): ParsedTransactionRecord {
+  public static parseTransaction(tx: unknown, targetWallet?: string): ParsedTransactionRecord {
     const signature = tx.signature || `sig-${tx.slot || Date.now()}`;
     const slot = tx.slot || 0;
     const timestamp = tx.timestamp 
@@ -237,20 +237,20 @@ export class HeliusTransactionParser {
   /**
    * Map standard Solana JSON-parsed RPC getTransaction into Helius transaction format
    */
-  public static mapSolanaRpcTransaction(rpcTx: any, signature: string): any {
+  public static mapSolanaRpcTransaction(rpcTx: unknown, signature: string): unknown {
     const message = rpcTx.transaction?.message;
     const meta = rpcTx.meta;
-    const feePayer = message?.accountKeys?.find((k: any) => k.signer)?.pubkey || 'UNKNOWN_WALLET';
+    const feePayer = message?.accountKeys?.find((k: unknown) => k.signer)?.pubkey || 'UNKNOWN_WALLET';
     
     // Calculate token balance diffs to detect swaps/transfers
     const preBalances = meta?.preTokenBalances || [];
     const postBalances = meta?.postTokenBalances || [];
     
-    const tokenInputs: any[] = [];
-    const tokenOutputs: any[] = [];
+    const tokenInputs: unknown[] = [];
+    const tokenOutputs: unknown[] = [];
     
     for (const post of postBalances) {
-      const pre = preBalances.find((p: any) => p.accountIndex === post.accountIndex && p.mint === post.mint);
+      const pre = preBalances.find((p: unknown) => p.accountIndex === post.accountIndex && p.mint === post.mint);
       const preAmount = pre ? Number(pre.uiTokenAmount?.uiAmount || 0) : 0;
       const postAmount = Number(post.uiTokenAmount?.uiAmount || 0);
       const diff = postAmount - preAmount;

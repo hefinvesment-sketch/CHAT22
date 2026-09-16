@@ -1,6 +1,8 @@
 import { AlphaSignal, PaperPortfolio, PaperPosition, SystemSettings } from '../types';
 
 export type RiskRejectCode =
+  | 'INSUFFICIENT_SIGNAL_DATA'
+  | 'SYNTHETIC_DATA_BLOCKED'
   | 'MIN_ALPHA_SCORE'
   | 'NEGATIVE_NET_EV'
   | 'MIN_LIQUIDITY_USD'
@@ -30,7 +32,7 @@ export interface RiskEvaluationResult {
   passed: boolean;
   code: 'PASS' | RiskRejectCode;
   reason?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 export class RiskEngine {
@@ -72,7 +74,7 @@ export class RiskEngine {
     if (signal.dataStatus !== 'COMPLETE' || signal.alphaScore === null) {
       return {
         passed: false,
-        code: 'INSUFFICIENT_SIGNAL_DATA' as any,
+        code: 'INSUFFICIENT_SIGNAL_DATA',
         reason: 'Signal evidence is incomplete.'
       };
     }
