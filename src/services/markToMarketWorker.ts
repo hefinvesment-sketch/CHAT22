@@ -47,15 +47,14 @@ export class MarkToMarketWorker {
       try {
         const priceRec = await RealDataProviders.fetchBirdeyePrice(pos.tokenAddress);
         if (priceRec && priceRec.priceUsd > 0) {
-          const ageMs = Date.now() - new Date(priceRec.timestamp).getTime();
-          if (ageMs < 60000) { // Under 60s
-            currentPrice = priceRec.priceUsd;
+          const ageSec = priceRec.dataFreshnessSeconds ?? Math.round((Date.now() - new Date(priceRec.observedAt || priceRec.timestamp).getTime()) / 1000);
+          currentPrice = priceRec.priceUsd;
+          if (ageSec <= 60) {
             priceStatus = 'FRESH';
-            _priceSource = 'BIRDEYE';
+            _priceSource = priceRec.source || 'BIRDEYE';
           } else {
-            currentPrice = priceRec.priceUsd;
             priceStatus = 'STALE';
-            _priceSource = 'BIRDEYE_STALE';
+            _priceSource = `${priceRec.source || 'BIRDEYE'}_STALE`;
           }
         }
       } catch {

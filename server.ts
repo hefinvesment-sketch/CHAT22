@@ -33,7 +33,8 @@ import {
   AlphaSignal,
   PaperPortfolio,
   WalletProfile,
-  TokenMarketData
+  TokenMarketData,
+  LiveEventItem
 } from './src/types';
 
 import { RedisClientService } from './src/services/redisClient';
@@ -106,7 +107,7 @@ let tradeHistory: PaperTradeRecord[] = [];
 let signals: AlphaSignal[] = [];
 let wallets: WalletProfile[] = [];
 let tokens: TokenMarketData[] = [];
-let liveEvents: unknown[] = [];
+let liveEvents: LiveEventItem[] = [];
 let systemSettings = { ...INITIAL_SETTINGS };
 const parallelBots = [...MOCK_PARALLEL_BOTS];
 let systemReady = false;
@@ -200,13 +201,13 @@ async function initializeState() {
       weeklyPnlUsd: 0.00,
       monthlyPnlUsd: 0.00,
       maxDrawdownPercent: 0.00,
-      winRatePercent: 0.00,
-      profitFactor: 1.00,
-      expectedValuePerTradeUsd: 0.00,
-      sharpeRatio: 0.00,
-      averageSlippageBps: 35,
-      averageDetectionLatencyMs: 650,
-      copyEfficiencyPercent: 100,
+      winRatePercent: null,
+      profitFactor: null,
+      expectedValuePerTradeUsd: null,
+      sharpeRatio: null,
+      averageSlippageBps: null,
+      averageDetectionLatencyMs: null,
+      copyEfficiencyPercent: null,
       totalTradesCount: 0,
       openPositionsCount: 0,
       totalFeesPaidUsd: 0.00,
@@ -219,12 +220,40 @@ async function initializeState() {
     try {
       const persisted = await storage.getPortfolio('live-paper-portfolio');
       if (persisted) {
-        currentPortfolio = persisted;
         openPositions = await storage.getOpenPositions('live-paper-portfolio');
         tradeHistory = await storage.getTrades('live-paper-portfolio');
         signals = await storage.getSignals(50);
         wallets = await storage.getWallets();
         tokens = await storage.getTokens();
+
+        const closedCount = tradeHistory.length;
+        const wins = tradeHistory.filter(t => t.realizedPnlUsd > 0).length;
+        const grossProfits = tradeHistory.filter(t => t.realizedPnlUsd > 0).reduce((acc, t) => acc + t.realizedPnlUsd, 0);
+        const grossLosses = Math.abs(tradeHistory.filter(t => t.realizedPnlUsd < 0).reduce((acc, t) => acc + t.realizedPnlUsd, 0));
+
+        const positionsValue = openPositions.reduce((acc, p) => acc + (p.currentValueUsd ?? (p.amount * (p.currentPrice || p.openPrice))), 0);
+        const unrealizedPnl = openPositions.reduce((acc, p) => acc + (p.unrealizedPnlUsd ?? 0), 0);
+        const totalEquity = (persisted.cashUsd ?? 5000.00) + positionsValue;
+        const totalReturnPercent = persisted.startingCapitalUsd > 0
+          ? Number((((totalEquity - persisted.startingCapitalUsd) / persisted.startingCapitalUsd) * 100).toFixed(2))
+          : 0;
+
+        currentPortfolio = {
+          ...persisted,
+          positionsValueUsd: Number(positionsValue.toFixed(2)),
+          unrealizedPnlUsd: Number(unrealizedPnl.toFixed(2)),
+          openPositionsCount: openPositions.length,
+          totalTradesCount: closedCount + openPositions.length,
+          totalEquityUsd: Number(totalEquity.toFixed(2)),
+          totalReturnPercent,
+          winRatePercent: closedCount >= 1 ? Number(((wins / closedCount) * 100).toFixed(2)) : null,
+          profitFactor: closedCount >= 1 ? (grossLosses > 0 ? Number((grossProfits / grossLosses).toFixed(2)) : (grossProfits > 0 ? 10.0 : null)) : null,
+          expectedValuePerTradeUsd: closedCount >= 1 ? Number(((grossProfits - grossLosses) / closedCount).toFixed(2)) : null,
+          sharpeRatio: null,
+          averageSlippageBps: closedCount > 0 ? persisted.averageSlippageBps : null,
+          averageDetectionLatencyMs: closedCount > 0 ? persisted.averageDetectionLatencyMs : null,
+          copyEfficiencyPercent: closedCount > 0 ? persisted.copyEfficiencyPercent : null
+        };
         console.log(`[System]: Loaded persisted live portfolio with ${openPositions.length} positions, ${tradeHistory.length} trades, and ${tokens.length} tokens.`);
       } else {
         currentPortfolio = cleanLivePortfolio;
@@ -519,13 +548,30 @@ app.get('/api/state', async (req: Request, res: Response) => {
     signals,
     tokens,
     wallets,
-    systemHealth: {
+    systemHealth: APP_MODE === 'demo' ? {
       ...MOCK_SYSTEM_HEALTH,
-      blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DISCONNECTED'),
-      marketData: (providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' || providers.find(p => p.providerName === 'Jupiter')?.status === 'CONNECTED') ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'DEGRADED'),
-      postgresql: providers.find(p => p.providerName === 'PostgreSQL')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'NOT_CONFIGURED'),
-      redis: providers.find(p => p.providerName === 'Redis')?.status === 'CONNECTED' ? 'CONNECTED' : (APP_MODE === 'demo' ? 'CONNECTED' : 'SYNTHETIC_CACHE'),
+      blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED',
+      marketData: (providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' || providers.find(p => p.providerName === 'Jupiter')?.status === 'CONNECTED') ? 'CONNECTED' : 'DEGRADED',
+      postgresql: providers.find(p => p.providerName === 'PostgreSQL')?.status === 'CONNECTED' ? 'CONNECTED' : 'NOT_CONFIGURED',
+      redis: providers.find(p => p.providerName === 'Redis')?.status === 'CONNECTED' ? 'CONNECTED' : 'SYNTHETIC_CACHE',
       lastEventTimestamp: new Date().toISOString()
+    } : {
+      blockchainStream: providers.find(p => p.providerName === 'Helius')?.status === 'CONNECTED' ? 'CONNECTED' : 'DISCONNECTED',
+      marketData: (providers.find(p => p.providerName === 'Birdeye')?.status === 'CONNECTED' || providers.find(p => p.providerName === 'Jupiter')?.status === 'CONNECTED') ? 'CONNECTED' : 'DEGRADED',
+      walletDiscovery: heliusWorker ? 'RUNNING' : 'STOPPED',
+      walletScoring: wallets.length > 0 ? 'RUNNING' : 'IDLE',
+      networkGraph: wallets.length > 0 ? 'RUNNING' : 'IDLE',
+      signalEngine: 'RUNNING',
+      paperTrader: process.env.LIVE_PAPER_EXECUTION_ENABLED === 'true' ? 'ACTIVE' : 'STANDBY',
+      riskEngine: 'ACTIVE',
+      postgresql: providers.find(p => p.providerName === 'PostgreSQL')?.status === 'CONNECTED' ? 'CONNECTED' : 'NOT_CONFIGURED',
+      redis: providers.find(p => p.providerName === 'Redis')?.status === 'CONNECTED' ? 'CONNECTED' : 'SYNTHETIC_CACHE',
+      lastEventTimestamp: liveEvents.length > 0 ? (liveEvents[0]?.timestamp ?? new Date().toISOString()) : new Date().toISOString(),
+      lastPriceUpdateTimestamp: tokens.length > 0 ? (tokens[0]?.lastUpdated ?? new Date().toISOString()) : new Date().toISOString(),
+      lastWalletUpdateTimestamp: wallets.length > 0 ? new Date().toISOString() : null,
+      eventsProcessed24h: ingestionStats?.transactionsIngested ?? 0,
+      activeTrackedWallets: wallets.length,
+      candidatePoolSize: tokens.length
     },
     liveEvents,
     settings: systemSettings,

@@ -86,7 +86,9 @@ export interface WalletProfile {
   wbtcBalance: number | null;
   wethBalance: number | null;
   coreAssetRatio: number | null; // SOL + USDT + USDC + WBTC + WETH / total
-  tradeCount: number;
+  tradeCount?: number | null;
+  observedTradeCount?: number | null;
+  historicalTradeCount?: number | null;
   tokensTradedCount: number;
   realizedPnlUsd: number | null;
   unrealizedPnlUsd: number | null;
@@ -110,8 +112,8 @@ export interface WalletProfile {
   copyability: WalletCopyability | null;
   isEligibleSmartMoney: boolean;
   clusterId?: string | null;
-  relatedWalletsCount: number;
-  holdings: WalletHolding[];
+  relatedWalletsCount: number | null;
+  holdings: WalletHolding[] | null;
   rollingScores: {
     sevenDay: number;
     fourteenDay: number;
@@ -181,6 +183,7 @@ export interface TokenMarketData {
   riskScore: number | null; // 0-100 (lower is safer)
   smartMoneyVwap: number | null;
   netFlow24hUsd: number | null;
+  lastUpdated?: string;
 }
 
 export interface SmartMoneyFlowTimeframe {
@@ -406,7 +409,7 @@ export interface LiveEventItem {
   detail: string;
   badgeType?: 'success' | 'warning' | 'info' | 'danger';
   tokenSymbol?: string;
-  alphaScore?: number;
+  alphaScore?: number | null;
 }
 
 export interface SystemSettings {
@@ -575,6 +578,9 @@ export interface StrategyEquitySnapshot {
   timestamp: string;
   equityUsd: number;
   drawdownPercent: number;
+  solBenchmark?: number;
+  btcBenchmark?: number;
+  ethBenchmark?: number;
 }
 
 export interface StrategyPortfolio extends PaperPortfolio {

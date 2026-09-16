@@ -10,12 +10,16 @@ export type ProviderStatus =
   | 'UNREACHABLE'
   | 'DEMO_ONLY';
 
+export type ModeReadiness = 'DEMO_READY' | 'LIVE_CAPABLE' | 'LIVE_DISABLED' | 'UNCONFIGURED';
+
 export interface ProviderHealthRecord {
   providerName: string;
   status: ProviderStatus;
+  operationalStatus?: ProviderStatus;
+  modeReadiness?: ModeReadiness;
   lastChecked: string;
   lastSuccessfulEvent?: string;
-  latencyMs?: number;
+  latencyMs?: number | null;
   message?: string;
   activeMode?: string;
 }
@@ -26,8 +30,10 @@ export interface MarketPriceRecord {
   priceUsd: number;
   source: string;
   timestamp: string;
-  dataFreshnessSeconds: number;
-  confidence: number;
+  observedAt?: string | null;
+  fetchedAt?: string;
+  dataFreshnessSeconds: number | null;
+  confidence: number | null;
 }
 
 export interface JupiterQuoteRecord {
@@ -115,7 +121,25 @@ export class RealDataProviders {
   }
 
   /**
-   * Returns a validated working Solana RPC URL, testing configured RPC and falling back to public mainnet RPC
+   * Returns an ordered list of candidate Solana RPC URLs
+   */
+  public static getCandidateSolanaRpcUrls(): string[] {
+    const list: string[] = [];
+    const primaryUrl = process.env.SOLANA_RPC_URL?.trim();
+    if (primaryUrl) list.push(primaryUrl);
+
+    const heliusKey = this.getHeliusApiKey();
+    if (heliusKey) {
+      list.push(`https://mainnet.helius-rpc.com/?api-key=${heliusKey}`);
+    }
+
+    list.push('https://api.mainnet-beta.solana.com');
+    list.push('https://solana-api.projectserum.com');
+    return list;
+  }
+
+  /**
+   * Returns a validated working Solana RPC URL, testing candidate RPCs in priority order
    */
   public static async getWorkingSolanaRpcUrl(): Promise<string> {
     const now = Date.now();
@@ -123,19 +147,44 @@ export class RealDataProviders {
       return this.cachedWorkingRpcUrl;
     }
 
-    const primaryUrl = process.env.SOLANA_RPC_URL;
-    if (primaryUrl) {
-      const primaryProbe = await this.probeSolanaRpc(primaryUrl);
-      if (primaryProbe.ok) {
-        this.cachedWorkingRpcUrl = primaryUrl;
+    const candidates = this.getCandidateSolanaRpcUrls();
+    for (const url of candidates) {
+      const probe = await this.probeSolanaRpc(url);
+      if (probe.ok) {
+        this.cachedWorkingRpcUrl = url;
         this.lastRpcUrlCheck = now;
-        return primaryUrl;
+        return url;
       }
     }
 
     this.cachedWorkingRpcUrl = 'https://api.mainnet-beta.solana.com';
     this.lastRpcUrlCheck = now;
     return this.cachedWorkingRpcUrl;
+  }
+
+  /**
+   * Reusable RPC caller with retry, exponential backoff, and 429 Retry-After handling
+   */
+  public static async callRpcWithRetry<T>(
+    fn: (endpoint: string) => Promise<T>,
+    retries = 3
+  ): Promise<T> {
+    const candidates = this.getCandidateSolanaRpcUrls();
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const endpoint = candidates[attempt % candidates.length] || 'https://api.mainnet-beta.solana.com';
+      try {
+        return await fn(endpoint);
+      } catch (err: unknown) {
+        lastError = err;
+        const msg = getErrorMessage(err);
+        const isRateLimit = msg.includes('429');
+        const delayMs = isRateLimit ? 1000 * Math.pow(2, attempt) + Math.random() * 200 : 300 * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    throw lastError || new Error('All RPC attempts failed');
   }
 
   /**
@@ -215,7 +264,10 @@ export class RealDataProviders {
       const record: ProviderHealthRecord = {
         providerName: 'Helius',
         status: mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED',
+        operationalStatus: 'NOT_CONFIGURED',
+        modeReadiness: mode === 'demo' ? 'DEMO_READY' : 'UNCONFIGURED',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: 'HELIUS_API_KEY is not defined in environment.',
         activeMode: mode
       };
@@ -240,6 +292,8 @@ export class RealDataProviders {
           const record: ProviderHealthRecord = {
             providerName: 'Helius',
             status: 'CONNECTED',
+            operationalStatus: 'CONNECTED',
+            modeReadiness: 'LIVE_CAPABLE',
             lastChecked: new Date().toISOString(),
             lastSuccessfulEvent: new Date().toISOString(),
             latencyMs,
@@ -251,57 +305,29 @@ export class RealDataProviders {
         }
       }
 
-      // If Helius endpoint returned 401/403 or non-200 (e.g. key expired or unauthorized):
-      // Verify if Solana RPC failover is available to sustain live ingestion
-      const workingRpc = await this.getWorkingSolanaRpcUrl();
-      const rpcProbe = await this.probeSolanaRpc(workingRpc);
-      if (rpcProbe.ok) {
-        const record: ProviderHealthRecord = {
-          providerName: 'Helius',
-          status: 'CONNECTED',
-          lastChecked: new Date().toISOString(),
-          lastSuccessfulEvent: new Date().toISOString(),
-          latencyMs: rpcProbe.latencyMs,
-          message: `Helius API key returned HTTP ${res.status}; automated failover active via Solana on-chain RPC stream.`,
-          activeMode: mode
-        };
-        this.healthMap['Helius'] = record;
-        return record;
-      }
-
+      // If Helius endpoint returned 401/403 or non-200:
+      // Mark Helius DEGRADED or ERROR, indicating standard RPC fallback. Do not lie that Helius is CONNECTED.
       const record: ProviderHealthRecord = {
         providerName: 'Helius',
-        status: 'ERROR',
+        status: 'DEGRADED',
+        operationalStatus: 'DEGRADED',
+        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
         lastChecked: new Date().toISOString(),
         latencyMs,
-        message: `Helius returned status HTTP ${res.status}`,
+        message: `Helius API key returned HTTP ${res.status}; FALLBACK_STANDARD_RPC active.`,
         activeMode: mode
       };
       this.healthMap['Helius'] = record;
       return record;
     } catch (err: unknown) {
-      // Network error reaching Helius, check if Solana RPC failover works
-      const workingRpc = await this.getWorkingSolanaRpcUrl();
-      const rpcProbe = await this.probeSolanaRpc(workingRpc);
-      if (rpcProbe.ok) {
-        const record: ProviderHealthRecord = {
-          providerName: 'Helius',
-          status: 'CONNECTED',
-          lastChecked: new Date().toISOString(),
-          lastSuccessfulEvent: new Date().toISOString(),
-          latencyMs: rpcProbe.latencyMs,
-          message: `Helius connection issue; automated failover active via Solana on-chain RPC stream.`,
-          activeMode: mode
-        };
-        this.healthMap['Helius'] = record;
-        return record;
-      }
-
       const record: ProviderHealthRecord = {
         providerName: 'Helius',
-        status: 'UNREACHABLE',
+        status: 'DEGRADED',
+        operationalStatus: 'DEGRADED',
+        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
         lastChecked: new Date().toISOString(),
-        message: this.sanitizeMessage(getErrorMessage(err)),
+        latencyMs: null,
+        message: `Helius connection issue: ${this.sanitizeMessage(getErrorMessage(err))}; FALLBACK_STANDARD_RPC active.`,
         activeMode: mode
       };
       this.healthMap['Helius'] = record;
@@ -310,15 +336,27 @@ export class RealDataProviders {
   }
 
   // 2. Birdeye Health & Fetcher
+  public static getBirdeyeHeaders(): Record<string, string> {
+    const apiKey = process.env.BIRDEYE_API_KEY?.trim() || '';
+    return {
+      'X-API-KEY': apiKey,
+      'x-chain': 'solana',
+      'Accept': 'application/json'
+    };
+  }
+
   public static async checkBirdeyeHealth(): Promise<ProviderHealthRecord> {
-    const apiKey = process.env.BIRDEYE_API_KEY;
+    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
     const mode = this.getAppMode();
 
     if (!apiKey) {
       const record: ProviderHealthRecord = {
         providerName: 'Birdeye',
         status: mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED',
+        operationalStatus: 'NOT_CONFIGURED',
+        modeReadiness: mode === 'demo' ? 'DEMO_READY' : 'UNCONFIGURED',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: 'BIRDEYE_API_KEY is not defined in environment.',
         activeMode: mode
       };
@@ -329,14 +367,32 @@ export class RealDataProviders {
     try {
       const start = Date.now();
       const res = await fetch('https://public-api.birdeye.so/defi/price?address=So11111111111111111111111111111111111111112', {
-        headers: { 'X-API-KEY': apiKey }
+        headers: this.getBirdeyeHeaders()
       });
       const latencyMs = Date.now() - start;
 
-      if (res.ok) {
+      if (!res.ok) {
+        const record: ProviderHealthRecord = {
+          providerName: 'Birdeye',
+          status: 'ERROR',
+          operationalStatus: 'ERROR',
+          modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
+          lastChecked: new Date().toISOString(),
+          latencyMs,
+          message: `Birdeye returned status HTTP ${res.status}`,
+          activeMode: mode
+        };
+        this.healthMap['Birdeye'] = record;
+        return record;
+      }
+
+      const json = await res.json().catch(() => null);
+      if (json && json.success === true && typeof json.data?.value === 'number' && Number.isFinite(json.data.value) && json.data.value > 0) {
         const record: ProviderHealthRecord = {
           providerName: 'Birdeye',
           status: 'CONNECTED',
+          operationalStatus: 'CONNECTED',
+          modeReadiness: 'LIVE_CAPABLE',
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs,
@@ -346,12 +402,15 @@ export class RealDataProviders {
         this.healthMap['Birdeye'] = record;
         return record;
       } else {
+        const reason = json?.message || (json?.success === false ? 'API returned success=false' : 'Invalid price payload');
         const record: ProviderHealthRecord = {
           providerName: 'Birdeye',
-          status: 'ERROR',
+          status: 'DEGRADED',
+          operationalStatus: 'DEGRADED',
+          modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
           lastChecked: new Date().toISOString(),
           latencyMs,
-          message: `Birdeye returned status HTTP ${res.status}`,
+          message: `Birdeye response validation failed: ${reason}`,
           activeMode: mode
         };
         this.healthMap['Birdeye'] = record;
@@ -361,7 +420,10 @@ export class RealDataProviders {
       const record: ProviderHealthRecord = {
         providerName: 'Birdeye',
         status: 'UNREACHABLE',
+        operationalStatus: 'UNREACHABLE',
+        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
@@ -381,6 +443,8 @@ export class RealDataProviders {
         const record: ProviderHealthRecord = {
           providerName: 'Solana RPC',
           status: 'CONNECTED',
+          operationalStatus: 'CONNECTED',
+          modeReadiness: 'LIVE_CAPABLE',
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs: fallbackProbe.latencyMs,
@@ -394,7 +458,10 @@ export class RealDataProviders {
       const record: ProviderHealthRecord = {
         providerName: 'Solana RPC',
         status: mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED',
+        operationalStatus: 'NOT_CONFIGURED',
+        modeReadiness: mode === 'demo' ? 'DEMO_READY' : 'UNCONFIGURED',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: 'SOLANA_RPC_URL is not defined in environment.',
         activeMode: mode
       };
@@ -409,6 +476,8 @@ export class RealDataProviders {
         const record: ProviderHealthRecord = {
           providerName: 'Solana RPC',
           status: 'CONNECTED',
+          operationalStatus: 'CONNECTED',
+          modeReadiness: 'LIVE_CAPABLE',
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs: primaryProbe.latencyMs,
@@ -425,6 +494,8 @@ export class RealDataProviders {
         const record: ProviderHealthRecord = {
           providerName: 'Solana RPC',
           status: 'CONNECTED',
+          operationalStatus: 'CONNECTED',
+          modeReadiness: 'LIVE_CAPABLE',
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs: fallbackProbe.latencyMs,
@@ -439,8 +510,10 @@ export class RealDataProviders {
       const record: ProviderHealthRecord = {
         providerName: 'Solana RPC',
         status: 'UNREACHABLE',
+        operationalStatus: 'UNREACHABLE',
+        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
         lastChecked: new Date().toISOString(),
-        latencyMs: primaryProbe.latencyMs,
+        latencyMs: null,
         message: this.sanitizeMessage(primaryProbe.error || 'Solana RPC connection unreachable'),
         activeMode: mode
       };
@@ -453,6 +526,8 @@ export class RealDataProviders {
         const record: ProviderHealthRecord = {
           providerName: 'Solana RPC',
           status: 'CONNECTED',
+          operationalStatus: 'CONNECTED',
+          modeReadiness: 'LIVE_CAPABLE',
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs: fallbackProbe.latencyMs,
@@ -466,7 +541,10 @@ export class RealDataProviders {
       const record: ProviderHealthRecord = {
         providerName: 'Solana RPC',
         status: 'UNREACHABLE',
+        operationalStatus: 'UNREACHABLE',
+        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
@@ -539,6 +617,8 @@ export class RealDataProviders {
         const record: ProviderHealthRecord = {
           providerName: 'Jupiter',
           status: 'CONNECTED',
+          operationalStatus: 'CONNECTED',
+          modeReadiness: 'LIVE_CAPABLE',
           lastChecked: new Date().toISOString(),
           lastSuccessfulEvent: new Date().toISOString(),
           latencyMs,
@@ -553,6 +633,8 @@ export class RealDataProviders {
         const record: ProviderHealthRecord = {
           providerName: 'Jupiter',
           status: 'ERROR',
+          operationalStatus: 'ERROR',
+          modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
           lastChecked: new Date().toISOString(),
           latencyMs,
           message: `Jupiter returned status HTTP ${res.status}`,
@@ -565,7 +647,10 @@ export class RealDataProviders {
       const record: ProviderHealthRecord = {
         providerName: 'Jupiter',
         status: 'UNREACHABLE',
+        operationalStatus: 'UNREACHABLE',
+        modeReadiness: mode === 'live_paper' ? 'LIVE_DISABLED' : 'DEMO_READY',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: this.sanitizeMessage(getErrorMessage(err)),
         activeMode: mode
       };
@@ -581,10 +666,6 @@ export class RealDataProviders {
     amountRaw: number,
     slippageBps: number = 50
   ): Promise<JupiterQuoteRecord> {
-    if (process.env.APP_MODE === 'live_paper' && process.env.LIVE_PAPER_EXECUTION_ENABLED !== 'true') {
-      throw new Error('Jupiter execution blocked: LIVE_PAPER_EXECUTION_ENABLED is false');
-    }
-
     const mode = this.getAppMode();
 
     const inputDecimals = await this.getTokenDecimals(inputMint);
@@ -693,12 +774,15 @@ export class RealDataProviders {
       const tokenData = json[tokenAddress];
       if (!tokenData || typeof tokenData.usdPrice !== 'number') return null;
 
+      const observedAt = tokenData.createdAt || new Date().toISOString();
       return {
         tokenAddress,
         tokenSymbol: tokenAddress === 'So11111111111111111111111111111111111111112' ? 'SOL' : 'TOKEN',
         priceUsd: tokenData.usdPrice,
         source: 'JUPITER_PRICE_V3',
-        timestamp: tokenData.createdAt || new Date().toISOString(),
+        timestamp: observedAt,
+        observedAt,
+        fetchedAt: new Date().toISOString(),
         dataFreshnessSeconds: 1,
         confidence: 0.99
       };
@@ -709,7 +793,7 @@ export class RealDataProviders {
 
   // 7. Birdeye Real-time Price Query (with Jupiter V3 fallback)
   public static async fetchBirdeyePrice(tokenAddress: string): Promise<MarketPriceRecord> {
-    const apiKey = process.env.BIRDEYE_API_KEY;
+    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
     const mode = this.getAppMode();
 
     if (!apiKey) {
@@ -722,12 +806,15 @@ export class RealDataProviders {
       if (mode !== 'demo') {
         throw new Error(`PROVIDER ERROR: Birdeye API key missing and Jupiter Price API unavailable in ${mode} mode.`);
       }
+      const nowIso = new Date().toISOString();
       return {
         tokenAddress,
         tokenSymbol: 'SOL',
         priceUsd: 145.20,
         source: 'DEMO_SIMULATOR',
-        timestamp: new Date().toISOString(),
+        timestamp: nowIso,
+        observedAt: nowIso,
+        fetchedAt: nowIso,
         dataFreshnessSeconds: 1,
         confidence: 0.95
       };
@@ -735,20 +822,28 @@ export class RealDataProviders {
 
     try {
       const res = await fetch(`https://public-api.birdeye.so/defi/price?address=${tokenAddress}`, {
-        headers: { 'X-API-KEY': apiKey }
+        headers: this.getBirdeyeHeaders()
       });
-      const json = await res.json();
-      if (!json.success || !json.data?.value) {
-        throw new Error(json.message || 'Invalid price response from Birdeye');
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || !json.success || typeof json.data?.value !== 'number' || !Number.isFinite(json.data.value) || json.data.value <= 0) {
+        throw new Error(json?.message || `Invalid price response from Birdeye (HTTP ${res.status})`);
       }
+
+      const updateUnixTime = json.data.updateUnixTime;
+      const observedAt = updateUnixTime ? new Date(updateUnixTime * 1000).toISOString() : null;
+      const dataFreshnessSeconds = updateUnixTime
+        ? Math.max(0, Math.round((Date.now() - updateUnixTime * 1000) / 1000))
+        : null;
 
       return {
         tokenAddress,
         tokenSymbol: json.data.symbol || 'TOKEN',
         priceUsd: json.data.value,
         source: 'BIRDEYE_REST_API',
-        timestamp: new Date().toISOString(),
-        dataFreshnessSeconds: Math.round((Date.now() - (json.data.updateUnixTime * 1000 || Date.now())) / 1000),
+        timestamp: observedAt || new Date().toISOString(),
+        observedAt,
+        fetchedAt: new Date().toISOString(),
+        dataFreshnessSeconds,
         confidence: 0.99
       };
     } catch (err: unknown) {
@@ -767,7 +862,9 @@ export class RealDataProviders {
         priceUsd: 145.20,
         source: 'DEMO_FALLBACK',
         timestamp: new Date().toISOString(),
-        dataFreshnessSeconds: 1,
+        observedAt: null,
+        fetchedAt: new Date().toISOString(),
+        dataFreshnessSeconds: null,
         confidence: 0.5
       };
     }
@@ -779,11 +876,21 @@ export class RealDataProviders {
     const redisHealth = await RedisClientService.checkHealth();
     const isConfigured = Boolean(RedisClientService.normalizeRedisUrl());
 
+    const status: ProviderStatus = redisHealth.connected 
+      ? 'CONNECTED' 
+      : (!isConfigured ? (mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED') : 'ERROR');
+    const operationalStatus: ProviderStatus = redisHealth.connected
+      ? 'CONNECTED'
+      : (!isConfigured ? 'NOT_CONFIGURED' : 'ERROR');
+    const modeReadiness: ModeReadiness = redisHealth.connected
+      ? 'LIVE_CAPABLE'
+      : (!isConfigured ? (mode === 'demo' ? 'DEMO_READY' : 'UNCONFIGURED') : 'LIVE_DISABLED');
+
     const record: ProviderHealthRecord = {
       providerName: 'Redis',
-      status: redisHealth.connected 
-        ? 'CONNECTED' 
-        : (!isConfigured ? (mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED') : 'ERROR'),
+      status,
+      operationalStatus,
+      modeReadiness,
       lastChecked: new Date().toISOString(),
       lastSuccessfulEvent: redisHealth.connected ? new Date().toISOString() : undefined,
       latencyMs: redisHealth.latencyMs,
@@ -813,13 +920,19 @@ export class RealDataProviders {
   }
 
   public static async getBirdeyeTokenInfo(mintAddress: string): Promise<unknown> {
-    const apiKey = process.env.BIRDEYE_API_KEY;
+    const apiKey = process.env.BIRDEYE_API_KEY?.trim();
     if (!apiKey) return null;
-    const response = await fetch(`https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`, {
-      headers: { 'X-API-KEY': apiKey, 'x-chain': 'solana' }
-    });
-    const data = await response.json();
-    return data.success ? data.data : null;
+    try {
+      const response = await fetch(`https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`, {
+        headers: this.getBirdeyeHeaders()
+      });
+      if (!response.ok) return null;
+      const data = await response.json().catch(() => null);
+      return data?.success ? data.data : null;
+    } catch (err: unknown) {
+      console.warn(`[Birdeye Token Info Warning]: ${this.sanitizeMessage(getErrorMessage(err))}`);
+      return null;
+    }
   }
 
   public static async getAllProviderHealth(storage?: StorageAdapter): Promise<ProviderHealthRecord[]> {
@@ -829,9 +942,14 @@ export class RealDataProviders {
     let dbRecord: ProviderHealthRecord;
     if (storage) {
       const dbHealth = await storage.checkHealth();
+      const status: ProviderStatus = dbHealth.isConnected ? 'CONNECTED' : (mode === 'demo' ? 'DEMO_ONLY' : 'ERROR');
+      const operationalStatus: ProviderStatus = dbHealth.isConnected ? 'CONNECTED' : 'ERROR';
+      const modeReadiness: ModeReadiness = dbHealth.isConnected ? 'LIVE_CAPABLE' : (mode === 'demo' ? 'DEMO_READY' : 'LIVE_DISABLED');
       dbRecord = {
         providerName: 'PostgreSQL',
-        status: dbHealth.isConnected ? 'CONNECTED' : (mode === 'demo' ? 'DEMO_ONLY' : 'ERROR'),
+        status,
+        operationalStatus,
+        modeReadiness,
         lastChecked: new Date().toISOString(),
         lastSuccessfulEvent: dbHealth.isConnected ? new Date().toISOString() : undefined,
         latencyMs: dbHealth.latencyMs,
@@ -842,7 +960,10 @@ export class RealDataProviders {
       dbRecord = {
         providerName: 'PostgreSQL',
         status: mode === 'demo' ? 'DEMO_ONLY' : 'NOT_CONFIGURED',
+        operationalStatus: 'NOT_CONFIGURED',
+        modeReadiness: mode === 'demo' ? 'DEMO_READY' : 'UNCONFIGURED',
         lastChecked: new Date().toISOString(),
+        latencyMs: null,
         message: 'Storage adapter not provided.',
         activeMode: mode
       };
@@ -868,5 +989,3 @@ export class RealDataProviders {
     return records;
   }
 }
-
-// I will append them at the end.

@@ -23,7 +23,6 @@ interface TimelineEvent {
 }
 
 export class BacktestEngine {
-  // @ts-ignore
   /**
    * Deterministic, point-in-time, true event-driven backtest simulation.
    * Simulates chronological events: signal generation -> risk check -> order execution -> holding -> exit.

@@ -1,4 +1,4 @@
-import { TokenResolver } from './tokenResolver';
+import { TokenResolver, revokedToAuthorityPresent } from './tokenResolver';
 import { StorageAdapter } from './persistence';
 import { HeliusTransactionParser, ParsedTransactionRecord } from './heliusParser';
 import { WalletDiscoveryService } from './walletDiscovery';
@@ -146,7 +146,7 @@ export class HeliusIngestionWorker {
         pagesFetched++;
         this.pagesFetchedLastPoll = pagesFetched;
         
-        const params: any = { limit: pageSize };
+        const params: { limit: number; before?: string } = { limit: pageSize };
         if (currentBefore) {
           params.before = currentBefore;
         }
@@ -168,8 +168,8 @@ export class HeliusIngestionWorker {
           break;
         }
 
-        const sigData = await sigRes.json();
-        const rawSignatures: any[] = sigData.result || [];
+        const sigData = (await sigRes.json()) as { result?: Array<{ signature?: string }> };
+        const rawSignatures = sigData.result || [];
 
         if (rawSignatures.length === 0) {
           reachedCheckpoint = true;
@@ -188,7 +188,7 @@ export class HeliusIngestionWorker {
         }
         
         if (!reachedCheckpoint && rawSignatures.length > 0) {
-          currentBefore = rawSignatures[rawSignatures.length - 1].signature;
+          currentBefore = rawSignatures[rawSignatures.length - 1]?.signature;
         } else {
           break;
         }
@@ -211,7 +211,7 @@ export class HeliusIngestionWorker {
       
       // Batch process enhanced transactions
       const batchSize = 25;
-      const rawTxs: any[] = [];
+      const rawTxs: unknown[] = [];
       
       for (let i = 0; i < fetchedSignatures.length; i += batchSize) {
         const batchSigs = fetchedSignatures.slice(i, i + batchSize);
@@ -270,7 +270,16 @@ export class HeliusIngestionWorker {
       
       const newestPersisted = parsedRecords[parsedRecords.length - 1];
       if (newestPersisted) {
-        await this.storage.saveIngestionCheckpoint(sourceKey, newestPersisted.signature, newestPersisted.slot || 0);
+        try {
+          await this.storage.saveIngestionCheckpoint(sourceKey, newestPersisted.signature, newestPersisted.slot || 0);
+        } catch (cpErr) {
+          console.error(`[Helius Worker CRITICAL]: Failed to save ingestion checkpoint for ${sourceKey}: ${getErrorMessage(cpErr)}`);
+          this.status = 'DEGRADED';
+          this.lastErrorMessage = `Checkpoint save failure: ${getErrorMessage(cpErr)}`;
+          this.isPolling = false;
+          this.lastPollCompletedAt = new Date().toISOString();
+          return;
+        }
       }
 
       // Emit live ingestion event
@@ -338,8 +347,8 @@ export class HeliusIngestionWorker {
           top10HoldersPercent: null,
           top20HoldersPercent: null,
           devHoldingsPercent: null,
-          hasFreezeAuthority: metadata.securityFlags?.freezeAuthorityRevoked === null ? null : !metadata.securityFlags?.freezeAuthorityRevoked,
-          hasMintAuthority: metadata.securityFlags?.mintAuthorityRevoked === null ? null : !metadata.securityFlags?.mintAuthorityRevoked,
+          hasFreezeAuthority: revokedToAuthorityPresent(metadata.securityFlags?.freezeAuthorityRevoked),
+          hasMintAuthority: revokedToAuthorityPresent(metadata.securityFlags?.mintAuthorityRevoked),
           liquidityLockedPercent: null,
           isHoneypotSafe: null,
           riskScore: null,

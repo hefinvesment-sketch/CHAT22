@@ -53,7 +53,7 @@ export interface StorageAdapter {
   saveProviderHealth(record: {
     providerName: string;
     status: string;
-    latencyMs?: number;
+    latencyMs?: number | null;
     message?: string;
   }): Promise<void>;
   getIngestionCheckpoint(sourceKey: string): Promise<{ lastSignature: string; lastSlot: number } | null>;
@@ -1062,7 +1062,7 @@ export class PostgresPersistenceStore implements StorageAdapter {
   public async saveProviderHealth(record: {
     providerName: string;
     status: string;
-    latencyMs?: number;
+    latencyMs?: number | null;
     message?: string;
   }): Promise<void> {
     if (!this.pool) return;
@@ -1117,7 +1117,7 @@ export class MemoryPersistenceStore implements StorageAdapter {
   private providerHealth: {
     providerName: string;
     status: string;
-    latencyMs?: number;
+    latencyMs?: number | null;
     message?: string;
     checked_at?: string;
   }[] = [];
@@ -1249,7 +1249,7 @@ export class MemoryPersistenceStore implements StorageAdapter {
   public async saveProviderHealth(record: {
     providerName: string;
     status: string;
-    latencyMs?: number;
+    latencyMs?: number | null;
     message?: string;
   }): Promise<void> {
     this.providerHealth.unshift({ ...record, checked_at: new Date().toISOString() });

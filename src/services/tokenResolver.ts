@@ -1,5 +1,12 @@
 import { RealDataProviders } from './realDataProviders';
 
+export function revokedToAuthorityPresent(
+  revoked: boolean | null | undefined
+): boolean | null {
+  if (revoked == null) return null;
+  return !revoked;
+}
+
 export interface TokenMetadata {
   address: string;
   symbol: string;

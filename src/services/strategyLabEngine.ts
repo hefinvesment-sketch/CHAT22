@@ -356,9 +356,45 @@ export class StrategyLabEngine {
           : null;
 
         const _equityHistory = await storage.getStrategyEquitySnapshots(def.key, 1000);
+        const equityHistory = (_equityHistory && _equityHistory.length > 0)
+          ? _equityHistory.map(s => ({
+              timestamp: s.timestamp,
+              equity: s.equityUsd,
+              drawdownPercent: s.drawdownPercent,
+              solBenchmark: s.solBenchmark ?? 100,
+              btcBenchmark: s.btcBenchmark ?? 100,
+              ethBenchmark: s.ethBenchmark ?? 100
+            }))
+          : (existing.equityHistory && existing.equityHistory.length > 0
+              ? existing.equityHistory
+              : [{
+                  timestamp: new Date().toISOString().slice(0, 10),
+                  equity: 5000.00,
+                  drawdownPercent: 0,
+                  solBenchmark: 100,
+                  btcBenchmark: 100,
+                  ethBenchmark: 100
+                }]);
+
+        const positionsValue = (openPositions || []).reduce((acc, p) => acc + (p.currentValueUsd ?? (p.amount * (p.currentPrice || p.openPrice))), 0);
+        const unrealizedPnl = (openPositions || []).reduce((acc, p) => acc + (p.unrealizedPnlUsd ?? 0), 0);
+        const openPositionsCount = (openPositions || []).length;
+        const totalTradesCount = closedCount + openPositionsCount;
+        const totalEquity = existing.cashUsd + positionsValue;
+        const totalReturnPercent = existing.startingCapitalUsd > 0
+          ? Number((((totalEquity - existing.startingCapitalUsd) / existing.startingCapitalUsd) * 100).toFixed(2))
+          : 0;
+
         const stratPortfolio: StrategyPortfolio = {
           ...existing,
-          status: def.enabled ? (closedCount > 0 ? 'ACTIVE' : 'WAITING_FOR_DATA') : 'PAUSED',
+          positionsValueUsd: Number(positionsValue.toFixed(2)),
+          unrealizedPnlUsd: Number(unrealizedPnl.toFixed(2)),
+          openPositionsCount,
+          totalTradesCount,
+          totalEquityUsd: Number(totalEquity.toFixed(2)),
+          totalReturnPercent,
+          equityHistory,
+          status: def.enabled ? (closedCount > 0 || openPositionsCount > 0 ? 'ACTIVE' : 'WAITING_FOR_DATA') : 'PAUSED',
           strategyDefinition: def,
           closedTradesCount: closedCount,
           sampleStatus: closedCount >= MIN_STRATEGY_SAMPLE_TRADES ? 'VALID_SAMPLE' : 'INSUFFICIENT_SAMPLE',
@@ -475,6 +511,27 @@ export class StrategyLabEngine {
 
       const openPositions = this.positions.get(def.key) || [];
       const decisionId = `dec-${def.key}-${signal.id}-${Date.now()}`;
+
+      // Kill Switch: STRATEGY_LAB_EXECUTION_ENABLED
+      if (process.env.STRATEGY_LAB_EXECUTION_ENABLED !== 'true') {
+        const record: StrategyDecisionRecord = {
+          id: decisionId,
+          strategyKey: def.key,
+          strategyName: def.name,
+          tokenAddress: signal.tokenAddress,
+          tokenSymbol: signal.tokenSymbol,
+          allocatedPositionUsd: null,
+          signalId: signal.id,
+          decision: 'REJECTED',
+          reason: 'Strategy lab execution is disabled pending validated research evidence (STRATEGY_LAB_EXECUTION_ENABLED is not true).',
+          evaluatedAt: new Date().toISOString(),
+          alphaScore: signal.alphaScore,
+          featureSnapshot: { ...signal.features }
+        };
+        await this.recordDecision(def.key, record, storage);
+        records.push(record);
+        continue;
+      }
 
       // If strategy is paused
       if (signal.dataStatus === 'INSUFFICIENT_DATA') {
@@ -985,8 +1042,9 @@ export class StrategyLabEngine {
         try {
           const priceRec = await RealDataProviders.fetchBirdeyePrice(pos.tokenAddress);
           if (priceRec && priceRec.priceUsd > 0) {
+            const ageSec = priceRec.dataFreshnessSeconds ?? Math.round((Date.now() - new Date(priceRec.observedAt || priceRec.timestamp).getTime()) / 1000);
             currentPrice = priceRec.priceUsd;
-            isPriceFresh = true;
+            isPriceFresh = ageSec <= 60;
           }
         } catch {
           isPriceFresh = false;

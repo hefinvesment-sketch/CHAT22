@@ -289,18 +289,24 @@ export const TraderProfileModal: React.FC<TraderProfileModalProps> = ({ wallet, 
         <div>
           <h4 className="font-bold text-zinc-300 text-xs uppercase mb-1.5">Current Portfolio Holdings</h4>
           <div className="space-y-1 text-xs">
-            {wallet.holdings.map((h, idx) => (
-              <div key={idx} className="p-2 rounded bg-zinc-950 border border-zinc-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-zinc-100">{h.tokenSymbol}</span>
-                  <span className="text-zinc-400">{h.amount.toLocaleString()} tokens</span>
+            {wallet.holdings && wallet.holdings.length > 0 ? (
+              wallet.holdings.map((h, idx) => (
+                <div key={idx} className="p-2 rounded bg-zinc-950 border border-zinc-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-zinc-100">{h.tokenSymbol}</span>
+                    <span className="text-zinc-400">{h.amount.toLocaleString()} tokens</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold text-zinc-200">${h.usdValue.toLocaleString()}</div>
+                    <div className="text-[10px] text-zinc-400">{h.percentageOfPortfolio.toFixed(1)}% of fund</div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-semibold text-zinc-200">${h.usdValue.toLocaleString()}</div>
-                  <div className="text-[10px] text-zinc-400">{h.percentageOfPortfolio.toFixed(1)}% of fund</div>
-                </div>
+              ))
+            ) : (
+              <div className="p-3 rounded bg-zinc-950 border border-zinc-900 text-zinc-500 text-xs text-center">
+                Holdings not indexed yet (Observation mode).
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
